@@ -3,7 +3,7 @@
 #ifndef DECISION_H
 #define DECISION_H
 
-#if defined(UNIX) && defined(__linux__)
+#if defined(UNIX) && (defined(__linux__) || defined(MACOS))
 #define DECISION_CHARACTERS
 struct mfndposdata;
 

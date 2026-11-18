@@ -150,7 +150,6 @@ export async function startServer({
                     LANG: 'C.UTF-8',
                     NETHACKDIR: path,
                     NETHACKOPTIONS: 'selectsaved',
-                    TERMINFO: '/usr/share/terminfo',
                     ...(broker.socketPath ? { NETHACK_DECISION_SOCKET: broker.socketPath } : {}),
                 },
             });

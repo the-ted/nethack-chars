@@ -17,17 +17,35 @@ esac
 
 mkdir -p build/deps
 archive="$root/build/deps/lua-5.4.8.tar.gz"
+expected=$(awk -v name="${archive##*/}" '$2 == name { print $1 }' submodules/CHKSUMS)
+if [[ ! "$expected" =~ ^[0-9a-f]{64}$ ]]; then
+    printf 'Missing or invalid upstream checksum for %s\n' "${archive##*/}" >&2
+    exit 1
+fi
+
+verify_lua() {
+    local checksum
+    if command -v shasum >/dev/null 2>&1; then
+        checksum=$(shasum -a 256 < "$1")
+    else
+        checksum=$(sha256sum < "$1")
+    fi
+    if [[ "${checksum%%[[:space:]]*}" != "$expected" ]]; then
+        printf 'Lua checksum mismatch for %s\n' "$1" >&2
+        return 1
+    fi
+}
+
 if [[ ! -f "$archive" ]]; then
     download=$(mktemp "$root/build/deps/lua-5.4.8.XXXXXX")
     trap 'rm -f -- "$download"' EXIT
     curl --fail --silent --show-error --location --proto '=https' \
         --max-time 60 https://www.lua.org/ftp/lua-5.4.8.tar.gz -o "$download"
-    sha256sum --check <<< "4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae  $download"
+    verify_lua "$download"
     mv -- "$download" "$archive"
     trap - EXIT
 fi
-# The digest is also recorded in the upstream submodules/CHKSUMS.
-(cd build/deps && sha256sum --ignore-missing --check "$root/submodules/CHKSUMS")
+verify_lua "$archive"
 
 # Build the current source, including local edits. Give the test and release
 # builds separate objects so build flags never get mixed.
@@ -37,9 +55,12 @@ cp -a dat doc include src sys util win "$source_dir/"
 mkdir -p "$source_dir/lib"
 tar -xzf "$archive" -C "$source_dir/lib"
 
-# Support a locally extracted Debian libncurses-dev in the cloud workspace.
-# On a regular development machine, the system development package suffices.
-if [[ -f "$root/build/deps/usr/include/curses.h" ]]; then
+if [[ "$(uname -s)" == Darwin ]]; then
+    # The macOS SDK supplies terminfo symbols as part of ncurses.
+    flags="$flags -DNOTPARMDECL"
+    tty_libs='-lncurses'
+elif [[ -f "$root/build/deps/usr/include/curses.h" ]]; then
+    # Support a locally extracted Debian libncurses-dev.
     multiarch=$(gcc -print-multiarch)
     export CPATH="$root/build/deps/usr/include:$root/build/deps/usr/include/$multiarch${CPATH:+:$CPATH}"
     tty_libs='-l:libncurses.so.6 -l:libtinfo.so.6'

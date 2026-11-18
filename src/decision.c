@@ -6,6 +6,7 @@
 
 #ifdef DECISION_CHARACTERS
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <sys/un.h>
@@ -15,6 +16,11 @@
 #define DECISION_TIMEOUT_MS 500
 #define DECISION_PROTOCOL_SIZE 4096
 #define DECISION_SENSE_RANGE 6
+#ifdef MSG_NOSIGNAL
+#define DECISION_SEND_FLAGS MSG_NOSIGNAL
+#else
+#define DECISION_SEND_FLAGS 0 /* SO_NOSIGPIPE is set on the socket below. */
+#endif
 
 /* These remain local to the process, independent of save files and game RNG. */
 static unsigned opportunities, next_opportunity;
@@ -293,7 +299,7 @@ static boolean
 send_request(int fd, const char *request, size_t size, int64_t deadline)
 {
     while (size && wait_for_io(fd, POLLOUT, deadline)) {
-        ssize_t sent = send(fd, request, size, MSG_NOSIGNAL);
+        ssize_t sent = send(fd, request, size, DECISION_SEND_FLAGS);
 
         if (sent < 0 && (errno == EINTR || errno == EAGAIN))
             continue;
@@ -332,18 +338,30 @@ connect_broker(const char *path, int64_t deadline)
     struct sockaddr_un address = { 0 };
     int fd, status = 0;
     socklen_t size = sizeof(status);
+#ifdef SO_NOSIGPIPE
+    const int no_sigpipe = 1;
+#endif
 
     if (!path || strlen(path) >= sizeof(address.sun_path))
         return -1;
+#ifdef MACOS
+    address.sun_len = sizeof(address);
+#endif
     address.sun_family = AF_UNIX;
     memcpy(address.sun_path, path, strlen(path) + 1);
-    fd = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    fd = socket(AF_UNIX, SOCK_STREAM, 0);
     if (fd < 0)
         return -1;
-    if (connect(fd, (struct sockaddr *) &address, sizeof(address)) < 0
-        && (errno != EINPROGRESS || !wait_for_io(fd, POLLOUT, deadline)
-            || getsockopt(fd, SOL_SOCKET, SO_ERROR, &status, &size) < 0
-            || status != 0)) {
+    if (fcntl(fd, F_SETFL, O_NONBLOCK) < 0
+        || fcntl(fd, F_SETFD, FD_CLOEXEC) < 0
+#ifdef SO_NOSIGPIPE
+        || setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe,
+                      sizeof(no_sigpipe)) < 0
+#endif
+        || (connect(fd, (struct sockaddr *) &address, sizeof(address)) < 0
+            && (errno != EINPROGRESS || !wait_for_io(fd, POLLOUT, deadline)
+                || getsockopt(fd, SOL_SOCKET, SO_ERROR, &status, &size) < 0
+                || status != 0))) {
         close(fd);
         return -1;
     }
@@ -407,7 +425,7 @@ decision_characters_outcome(int fd, boolean applied)
     if (fd >= 0) {
         const char *outcome = applied ? "applied\n" : "blocked\n";
 
-        (void) send(fd, outcome, strlen(outcome), MSG_NOSIGNAL);
+        (void) send(fd, outcome, strlen(outcome), DECISION_SEND_FLAGS);
         close(fd);
     }
 }

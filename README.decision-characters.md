@@ -4,7 +4,10 @@ This fork adds model-guided tactics to NetHack 5.0.0 and serves the native TTY g
 
 ## Build and play
 
-Use Linux with GCC, GNU make, ncurses/terminfo development files, gzip, curl, tar, sha256sum, Python 3 and Node.js 24 with npm. The cloud build used Debian 13.6, GCC 14.2.0, GNU make 4.4.1, ncurses 6.5, Lua 5.4.8 and Node 24.22.1. On Debian, `build-essential libncurses-dev gzip curl python3` cover the native dependencies.
+Use Node.js 24 with npm on macOS or Linux.
+
+- **macOS** uses the compiler, make and ncurses supplied by the Xcode Command Line Tools. Run `xcode-select --install` if the tools are missing. If you use Homebrew for Node, run `brew install node@24` and add it to your shell with `export PATH="$(brew --prefix node@24)/bin:$PATH"`.
+- **Linux** needs a C compiler, GNU make, ncurses/terminfo development files, gzip, curl, tar and a SHA-256 utility. On Debian, install `build-essential libncurses-dev gzip curl python3`. The cloud build used Debian 13.6, GCC 14.2.0, GNU make 4.4.1, ncurses 6.5, Lua 5.4.8 and Node 24.22.1.
 
 From the repository root, run:
 
@@ -23,7 +26,7 @@ Run `./scripts/build-browser` explicitly after edits to the C sources. It verifi
 | `NETHACK_DECISION_LOG=1` | Emit decision timing, token usage, fallback reason and the engine's applied or blocked outcome. |
 | `PORT`, `NETHACK_WEB_HOST` | Listen address, defaulting to `127.0.0.1:8080`. |
 | `NETHACK_WEB_ORIGIN` | Exact browser origin when serving behind an HTTPS reverse proxy. Forward WebSocket upgrades for `/game`. |
-| `NETHACK_ASSETS`, `NETHACK_BIN` | Override the staged game directory or executable. Use a Linux TTY build with the feature and normal-play sysconf. |
+| `NETHACK_ASSETS`, `NETHACK_BIN` | Override the staged game directory or executable. Use a TTY build for your platform with the feature and normal-play sysconf. |
 
 The engine offers legal steps for goblins, hobgoblins, hill orcs, Mordor orcs, Uruk-hai, orc-captains, kobolds, large kobolds, kobold leaders and gnomes. Only eligible ordinary movement can use a model choice. There is at most one request per player action, with a 500 ms engine deadline. The game uses native movement when no key is configured or a decision is unavailable.
 
@@ -55,7 +58,7 @@ To verify live applied choices after provisioning API access and project credits
 python3 test/decision-characters/run.py build/test/games/lib/nethackdir --live
 ```
 
-If startup reports that the asset directory is missing, run the build script. If npm needs to compile `node-pty`, install the native toolchain and Python listed above. If live decisions time out or return HTTP 429, check API access and project credits, then rerun the live test. The browser game can be played while API access is unavailable.
+If startup reports that the asset directory is missing, run the build script. If npm needs to compile `node-pty`, make sure the native toolchain and Python 3 are installed. If the build reports a checksum mismatch, remove the damaged `build/deps/lua-5.4.8.tar.gz` and rerun it to download and verify a fresh copy. If live decisions time out or return HTTP 429, check API access and project credits, then rerun the live test. The browser game can be played while API access is unavailable.
 
 ## Verification in the cloud workspace
 
