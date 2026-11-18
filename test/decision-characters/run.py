@@ -292,8 +292,11 @@ def run_turn_budget(install):
 
 
 def run_broker_encounter(install, fixture, path, provider):
+    env = os.environ.copy()
+    env.setdefault("NODE_USE_ENV_PROXY", "1")
     with subprocess.Popen(
-        ["node", "--use-env-proxy", str(HERE / "live.mjs"), str(path), provider],
+        ["node", str(HERE / "live.mjs"), str(path), provider],
+        env=env,
         stdout=subprocess.PIPE,
         text=True,
     ) as broker:

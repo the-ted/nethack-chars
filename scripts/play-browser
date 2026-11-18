@@ -14,4 +14,5 @@ if [[ ! -d browser/node_modules ]]; then
         npm --prefix browser ci --no-audit --no-fund
     )
 fi
-exec node --use-env-proxy browser/server.mjs
+export NODE_USE_ENV_PROXY="${NODE_USE_ENV_PROXY:-1}"
+exec node browser/server.mjs
