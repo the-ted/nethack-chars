@@ -1,9 +1,10 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { constants } from 'node:fs';
-import { access, copyFile, mkdir, mkdtemp, open, readdir, readFile, realpath, rmdir, stat, symlink } from 'node:fs/promises';
+import { access, chmod, copyFile, mkdir, mkdtemp, open, readdir, readFile, realpath, rmdir, stat, symlink } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import headless from '@xterm/headless';
 import serialize from '@xterm/addon-serialize';
@@ -68,6 +69,23 @@ async function createFile(path) {
     await handle.close();
 }
 
+async function prepareMacPty() {
+    const require = createRequire(import.meta.url);
+    const packageRoot = dirname(require.resolve('node-pty/package.json'));
+    // node-pty launches the helper next to the loaded addon. Its macOS
+    // prebuilt helpers ship without execute permission in the npm package.
+    const addon = Object.keys(require.cache).find((path) => (
+        path.startsWith(packageRoot + sep) && basename(path) === 'pty.node'
+    ));
+    if (!addon) throw new Error('Could not locate the loaded node-pty addon for macOS.');
+    const helper = join(dirname(addon), 'spawn-helper');
+    const { mode } = await stat(helper);
+    if (!(mode & constants.S_IXUSR)) {
+        await chmod(helper, mode | constants.S_IXUSR);
+    }
+    await access(helper, constants.X_OK);
+}
+
 export async function startServer({
     assets = resolve(process.env.NETHACK_ASSETS ?? join(root, 'build/stage/games/lib/nethackdir')),
     executable = resolve(process.env.NETHACK_BIN ?? join(assets, 'nethack')),
@@ -79,6 +97,7 @@ export async function startServer({
     maxActive = 16,
     decisionFactory = createDecisionBroker,
 } = {}) {
+    if (process.platform === 'darwin') await prepareMacPty();
     await access(executable, constants.X_OK);
     await access(join(assets, 'sysconf'), constants.R_OK);
     await mkdirPrivate(state);
