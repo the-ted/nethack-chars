@@ -1,27 +1,16 @@
-# Decision-characters for browser-playable NetHack
+# Decision-characters for terminal NetHack
 
-Build a source fork of NetHack 5.0.0 that runs the complete Unix TTY game on a server. Players use a browser terminal. Ten existing monster species get a new tactical decision during ordinary hostile movement: given the steps the engine permits, which square should this monster choose? That decision can change whether the player gets surrounded, whether a wounded monster closes the distance, or whether an archer keeps a firing lane. NetHack still resolves every action and advances the clock.
+Build a source fork of NetHack 5.0.0 that runs directly in the player’s terminal on macOS or Linux. Ten existing monster species get a new tactical decision during ordinary hostile movement: given the steps the engine permits, which square should this monster choose? That decision can change whether the player gets surrounded, whether a wounded monster closes the distance, or whether an archer keeps a firing lane. NetHack still resolves every action and advances the clock.
 
 ## 1. Establish a playable baseline
 
 Use the existing `the-ted/nethack-chars` repository as the distribution fork. Import upstream Git history from the release tag `NetHack-5.0.0_Released` (commit `16ff59115315917b93185d026aeefea06db9b0f4`), retain `origin` for this project, and add `NetHack/NetHack` as `upstream`. Preserve this plan when establishing the release-based branch. Keep upstream notices and `dat/license`, identify the modified version, and ship corresponding source and build instructions with distributed releases. [Pinned upstream source](https://github.com/NetHack/NetHack/tree/16ff59115315917b93185d026aeefea06db9b0f4)
 
-Build the unmodified release first on Linux with a C toolchain, GNU make, ncurses/terminfo development files, and the release’s Lua dependency. Start from the documented TTY recipe below. Use a disposable install prefix during builds because upstream installation recreates the game directory. Package the installed executable **and** its data, Lua scripts, help, and configuration. Keep runtime saves on a separate writable volume.
+Build the unmodified release first with a C toolchain, GNU make, ncurses, and the release’s Lua dependency. Use the documented Unix TTY build, then start a character, take a turn, open inventory, save, exit, and restore. Keep the installed executable and assets separate from writable save and score files so rebuilds preserve progress. [Upstream Unix installation guide](https://github.com/NetHack/NetHack/blob/16ff59115315917b93185d026aeefea06db9b0f4/sys/unix/NewInstall.unx)
 
-```sh
-(cd sys/unix && sh setup.sh hints/linux-minimal)
-make fetch-Lua
-make all
-make install PREFIX="$PWD/build/stage"
-```
+## 2. Launch the native game
 
-Record the working build image, tool versions and verified Lua source in the fork. Before modifying the engine, start a character, make a move, open inventory, save, exit and restore in the native terminal. Use that session as the reference for browser behavior. [Upstream Unix installation guide](https://github.com/NetHack/NetHack/blob/16ff59115315917b93185d026aeefea06db9b0f4/sys/unix/NewInstall.unx)
-
-## 2. Put the full game in the browser
-
-Use xterm.js in the page and a small Node.js service with a WebSocket and a pseudo-terminal (PTY) per active game. The service launches a fixed NetHack executable in TTY mode. Forward terminal input, output and window-size changes, including Escape, Control keys, directional keys, text entry and menu pagination. Deliver an 80×24 or larger playable view. Running the native executable preserves the upstream dungeon, character creation, shops, combat, inventory, endgame and save format.
-
-Give each session an opaque owner token, one input writer, and a private game directory. Disable shell escapes, external pagers and wizard mode in the served build. Mount immutable game assets and persist each session’s writable files under its server-issued ID. On browser disconnect, keep the PTY alive for a grace period and retain terminal state for reattachment. On expiry or graceful shutdown, use NetHack’s supported hangup/save path and wait for completion before reclaiming the process. On return, reattach to the running game or restore the completed save. Verify both paths at menus as well as during play.
+Use `./scripts/play` to build as needed and launch NetHack in the foreground with the player’s terminal and standard NetHack arguments. Keep the gameplay directory separate from the build output. When a key is available, start a Node broker as a background process, wait for its private socket, and clean it up when the game exits. Run NetHack with the key removed from its environment so game input, save files, and shell commands do not handle it.
 
 ## 3. Integrate one real decision into the engine
 
@@ -53,7 +42,7 @@ For each fixture, supply two actual legal alternatives and record the upstream d
 
 ## 5. Call OpenAI Decisions with a bounded turn budget
 
-Give the game a private local decision channel to a server-side broker. The broker alone reads `OPENAI_API_KEY` and sends authenticated HTTPS requests to `POST https://api.openai.com/v1/decisions`. Launch the game with a minimal environment and serve static browser assets without credentials. The browser sends ordinary game input. It has no endpoint for submitting arbitrary decision prompts.
+Give the game a private local decision channel to the broker. The broker reads `OPENAI_API_KEY` and sends authenticated HTTPS requests to `POST https://api.openai.com/v1/decisions`.
 
 For each request, use the documented `gpt-6-luna` model, a user message containing `input_json` evidence, and one named `choice` question. Build the choices from the engine’s candidate list. For example, the broker could send this request for a wounded goblin. [OpenAI Decisions guide](https://developers.openai.com/api/docs/guides/decisions)
 
@@ -75,8 +64,8 @@ Start with one outstanding request per game, at most one call per player turn an
 
 ## 6. Milestones and release checks
 
-1. **Native and browser baseline.** Produce a clean reproducible build and a single documented browser launch command. From a fresh checkout, create a character, explore, fight, use an item, change levels, save, restart the service, and restore in the browser. Verify two simultaneous players have isolated inputs and saves.
+1. **Native baseline.** Produce a clean reproducible build and a documented terminal launch command. Create a character, explore, fight, use an item, change levels, save, exit, and restore in a new terminal session.
 2. **Goblin vertical slice.** Exercise one real movement opportunity end to end with a scripted provider, then with an authenticated Decisions request. Show that the returned choice reaches the native resolver and produces the corresponding step. Compare feature-off and forced-fallback runs against the baseline with matching RNG and inputs.
 3. **All ten species.** Run the ten encounter fixtures, plus controls for an unlisted species, a pet, a peaceful monster, polymorph, forced movement and adjacent combat. Verify unchanged turn cost, no illegal moves, and ordinary attack and damage resolution. In a test-only build, stage encounters for all ten species with live Decisions enabled and capture an applied choice for each.
 4. **Failure and responsiveness.** Exercise slow, refused, malformed, unauthorized, rate-limited and late responses. Test a crowded level, fast monsters and repeated commands. Report median and p95 input-to-redraw latency, worst added turn delay, API calls per 100 turns, token usage, and applied decisions per species. Enforce the configured deadline and call cap in automated checks.
-5. **Playable release.** Run upstream applicable tests, the scripted browser scenarios, and a manual normal-mode session. Exercise death, scoring and starting another character, plus an endgame smoke test using a prepared test save. Ship build, launch, save-volume, model configuration and troubleshooting instructions alongside the source. Release once fresh-build browser play, persistent saves, all ten live integrations and keyless fallback have passed.
+5. **Playable release.** Run the upstream Lua tests, the native encounter fixtures, and a normal-mode terminal session. Exercise scoring and an endgame save. Ship build, launch, save, and model configuration instructions alongside the source.

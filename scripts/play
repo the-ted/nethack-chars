@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+decision_api_key=${OPENAI_API_KEY:-}
+export -n decision_api_key
+unset OPENAI_API_KEY NETHACK_DECISION_SOCKET
+
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+assets=${NETHACK_ASSETS:-"$root/build/terminal/games/lib/nethackdir"}
+executable=${NETHACK_BIN:-"$assets/nethack"}
+
+if [[ ! -x "$executable" && -z "${NETHACK_BIN:-}${NETHACK_ASSETS:-}" ]]; then
+    "$root/scripts/build"
+fi
+if [[ ! -x "$executable" || ! -r "$assets/sysconf" ]]; then
+    printf 'NetHack or its game data is missing. Run ./scripts/build.\n' >&2
+    exit 1
+fi
+
+# The upstream installer recreates its output. Keep saves, scores and level
+# files in a separate playground, with links to the installed game data.
+umask 077
+assets=$(cd -- "$assets" && pwd -P)
+export NETHACKDIR="${NETHACKDIR:-$root/build/terminal-state}"
+mkdir -p -- "$NETHACKDIR/save"
+for asset in "$assets"/*; do
+    name=${asset##*/}
+    case "$name" in
+        nethack|save|perm|record|logfile|xlogfile|livelog) continue ;;
+    esac
+    if [[ -f "$asset" && ! -e "$NETHACKDIR/$name" ]]; then
+        ln -sfn -- "$asset" "$NETHACKDIR/$name"
+    fi
+done
+for name in perm record logfile xlogfile livelog; do
+    : >> "$NETHACKDIR/$name"
+done
+
+if [[ -z "$decision_api_key" || ${NETHACK_DECISIONS:-} == off ]]; then
+    exec "$executable" "$@"
+fi
+if ! command -v node >/dev/null 2>&1; then
+    printf 'Node.js is unavailable. Playing with native monster movement.\n' >&2
+    exec "$executable" "$@"
+fi
+
+# Use a short private socket path on both macOS and Linux.
+socket_dir=$(mktemp -d /tmp/nhd.XXXXXX)
+broker_pid=
+cleanup() {
+    if [[ -n "$broker_pid" ]]; then
+        kill -TERM "$broker_pid" 2>/dev/null || true
+        wait "$broker_pid" 2>/dev/null || true
+    fi
+    rm -f -- "$socket_dir/s" "$socket_dir/ready" "$socket_dir/error"
+    rmdir -- "$socket_dir"
+}
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 143' TERM
+
+log=/dev/null
+if [[ ${NETHACK_DECISION_LOG:-} == 1 ]]; then
+    log="$NETHACKDIR/decisions.log"
+fi
+OPENAI_API_KEY="$decision_api_key" NODE_USE_ENV_PROXY="${NODE_USE_ENV_PROXY:-1}" \
+    node "$root/decision-characters/serve.mjs" "$socket_dir/s" \
+    </dev/null >>"$log" 2>"$socket_dir/error" &
+broker_pid=$!
+unset decision_api_key
+
+for ((attempt = 0; attempt < 80; attempt++)); do
+    if [[ -f "$socket_dir/ready" ]] || ! kill -0 "$broker_pid" 2>/dev/null; then
+        break
+    fi
+    sleep 0.05
+done
+if [[ -f "$socket_dir/ready" ]]; then
+    export NETHACK_DECISION_SOCKET="$socket_dir/s"
+else
+    printf 'The Decisions broker could not start. Playing with native monster movement.\n' >&2
+    cat "$socket_dir/error" >&2
+    cleanup
+    trap - EXIT HUP TERM
+    exec "$executable" "$@"
+fi
+"$executable" "$@"

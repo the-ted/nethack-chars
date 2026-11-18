@@ -3,8 +3,8 @@ set -euo pipefail
 
 cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
 root=$PWD
-profile=stage
-flags='-g -I../include -DNOSHELL -DNOSUSPEND -DNOMAIL -DCOMPRESS=\"/usr/bin/gzip\" -DCOMPRESS_EXTENSION=\".gz\"'
+profile=terminal
+flags='-g -I../include -DNOMAIL -DCOMPRESS=\"/usr/bin/gzip\" -DCOMPRESS_EXTENSION=\".gz\"'
 
 case "${1:-}" in
     '') ;;
@@ -76,14 +76,5 @@ prefix="$root/build/$profile"
 # Upstream install reinitializes this dedicated staging prefix.
 make -j1 CFLAGS="$flags" WINTTYLIB="$tty_libs" GITINFO=0 PREFIX="$prefix" SHELLDIR= install
 assets="$prefix/games/lib/nethackdir"
-if [[ "$profile" == test ]]; then
-    sed '/^GDBPATH=/d; /^GREPPATH=/d' sys/unix/sysconf > "$assets/sysconf"
-else
-    awk '
-        /^(GDBPATH|GREPPATH)=/ { next }
-        /^WIZARDS=/   { print "WIZARDS="; next }
-        /^EXPLORERS=/ { print "EXPLORERS="; next }
-        { print }
-    ' sys/unix/sysconf > "$assets/sysconf"
-fi
+sed '/^GDBPATH=/d; /^GREPPATH=/d' sys/unix/sysconf > "$assets/sysconf"
 printf 'NetHack 5.0.0 with decision-characters staged at %s\n' "$assets"

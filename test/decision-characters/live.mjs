@@ -1,4 +1,4 @@
-import { createDecisionBroker } from "../../browser/broker.mjs";
+import { createDecisionBroker } from "../../decision-characters/broker.mjs";
 
 const [socketPath, provider] = process.argv.slice(2);
 

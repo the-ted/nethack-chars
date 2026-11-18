@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
-import { createDecisionBroker } from "../broker.mjs";
+import { createDecisionBroker } from "../../decision-characters/broker.mjs";
 
 function encounter(overrides = {}) {
     const step = {
