@@ -515,8 +515,8 @@ HACK_H	= ../src/hack.h-t
 # all .c that are part of the main NetHack program and are not operating- or
 # windowing-system specific. Do not include date.c in this list.
 HACKCSRC = allmain.c alloc.c apply.c artifact.c attrib.c ball.c bones.c \
-	   botl.c calendar.c cmd.c coloratt.c dbridge.c decl.c detect.c dig.c display.c \
-	   dlb.c do.c do_name.c do_wear.c dog.c dogmove.c dokick.c dothrow.c \
+	   botl.c calendar.c cmd.c coloratt.c dbridge.c decision.c decl.c detect.c \
+	   dig.c display.c dlb.c do.c do_name.c do_wear.c dog.c dogmove.c dokick.c dothrow.c \
 	   drawing.c dungeon.c earlyarg.c eat.c end.c engrave.c exper.c explode.c \
 	   extralev.c files.c fountain.c hack.c hacklib.c \
 	   getpos.c glyphs.c iactions.c insight.c invent.c isaac64.c light.c \
@@ -593,8 +593,9 @@ HOBJ = $(TARGETPFX)allmain.o $(TARGETPFX)alloc.o \
 	$(TARGETPFX)apply.o $(TARGETPFX)artifact.o $(TARGETPFX)attrib.o \
 	$(TARGETPFX)ball.o $(TARGETPFX)bones.o $(TARGETPFX)botl.o \
 	$(TARGETPFX)calendar.o $(TARGETPFX)cfgfiles.o $(TARGETPFX)cmd.o \
-	$(TARGETPFX)coloratt.o $(TARGETPFX)dbridge.o $(TARGETPFX)decl.o \
-	$(TARGETPFX)detect.o $(TARGETPFX)dig.o $(TARGETPFX)display.o \
+	$(TARGETPFX)coloratt.o $(TARGETPFX)dbridge.o $(TARGETPFX)decision.o \
+	$(TARGETPFX)decl.o $(TARGETPFX)detect.o $(TARGETPFX)dig.o \
+	$(TARGETPFX)display.o \
 	$(TARGETPFX)dlb.o $(TARGETPFX)do.o $(TARGETPFX)do_name.o \
 	$(TARGETPFX)do_wear.o $(TARGETPFX)dog.o $(TARGETPFX)dogmove.o \
 	$(TARGETPFX)dokick.o $(TARGETPFX)dothrow.o $(TARGETPFX)drawing.o \
@@ -1137,7 +1138,7 @@ $(TARGETPFX)topl.o: ../win/tty/topl.c $(HACK_H) ../include/tcap.h \
 $(TARGETPFX)wintty.o: ../win/tty/wintty.c $(HACK_H) ../include/dlb.h \
 		../include/tcap.h ../include/wintty.h
 	$(TARGET_CC) $(TARGET_CFLAGS) -c -o $@ ../win/tty/wintty.c
-$(TARGETPFX)allmain.o: allmain.c $(HACK_H)
+$(TARGETPFX)allmain.o: allmain.c $(HACK_H) ../include/decision.h
 $(TARGETPFX)alloc.o: alloc.c $(CONFIG_H) ../include/nhlua.h
 $(TARGETPFX)apply.o: apply.c $(HACK_H)
 $(TARGETPFX)artifact.o: artifact.c $(HACK_H) ../include/artifact.h
@@ -1150,6 +1151,8 @@ $(TARGETPFX)cfgfiles.o: cfgfiles.c $(HACK_H)
 $(TARGETPFX)cmd.o: cmd.c $(HACK_H) ../include/func_tab.h
 $(TARGETPFX)coloratt.o: coloratt.c $(HACK_H)
 $(TARGETPFX)dbridge.o: dbridge.c $(HACK_H)
+$(TARGETPFX)decision.o: decision.c $(HACK_H) ../include/decision.h \
+		../include/mfndpos.h
 $(TARGETPFX)decl.o: decl.c $(HACK_H)
 $(TARGETPFX)detect.o: detect.c $(HACK_H) ../include/artifact.h
 $(TARGETPFX)dig.o: dig.c $(HACK_H)
@@ -1211,7 +1214,7 @@ $(TARGETPFX)mkroom.o: mkroom.c $(HACK_H)
 $(TARGETPFX)mon.o: mon.c $(HACK_H) ../include/mfndpos.h
 $(TARGETPFX)mondata.o: mondata.c $(HACK_H)
 $(TARGETPFX)monmove.o: monmove.c $(HACK_H) ../include/artifact.h \
-		../include/mfndpos.h
+		../include/decision.h ../include/mfndpos.h
 $(TARGETPFX)monst.o: monst.c $(CONFIG_H) ../include/align.h \
 		../include/defsym.h ../include/monattk.h ../include/monflag.h \
 		../include/monsters.h ../include/permonst.h ../include/sym.h \

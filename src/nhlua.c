@@ -1418,6 +1418,82 @@ nhl_test(lua_State *L)
     return 1;
 }
 
+#ifdef DECISION_CHARACTERS_TEST
+/* The wizard fixture prepares an actor, then inspects it after moveloop_core. */
+staticfn int
+nhl_decision_fixture(lua_State *L)
+{
+    struct monst *mon;
+    int argc = lua_gettop(L);
+
+    if (!wizard)
+        return luaL_error(L, "Decision fixture requires wizard mode");
+
+    if (argc <= 2) {
+        unsigned id = (unsigned) luaL_checkinteger(L, 1);
+
+        for (mon = fmon; mon && mon->m_id != id; mon = mon->nmon)
+            continue;
+        if (!mon || DEADMONSTER(mon))
+            return luaL_error(L, "Decision fixture actor is missing");
+
+        if (argc == 2) {
+            if (strcmp(luaL_checkstring(L, 2), "recharge"))
+                return luaL_error(L, "Unknown decision fixture action");
+            mon->movement = 2 * NORMAL_SPEED;
+            return 0;
+        }
+        lua_newtable(L);
+        nhl_add_table_entry_int(L, "x", mon->mx);
+        nhl_add_table_entry_int(L, "y", mon->my);
+        nhl_add_table_entry_int(L, "turn", svm.moves);
+        nhl_add_table_entry_int(L, "hp", u.uhp);
+        nhl_add_table_entry_int(L, "actor_hp", mon->mhp);
+        nhl_add_table_entry_int(L, "rng", rn2(1000000000));
+        return 1;
+    }
+
+    {
+        lua_Integer x = luaL_checkinteger(L, 1);
+        lua_Integer y = luaL_checkinteger(L, 2);
+        const char *mode = luaL_checkstring(L, 3);
+
+        if (x < 1 || x >= COLNO || y < 0 || y >= ROWNO)
+            return luaL_error(L, "Decision fixture coordinates out of bounds");
+        mon = m_at((coordxy) x, (coordxy) y);
+        if (!mon)
+            return luaL_error(L, "Decision fixture actor was not placed");
+
+        init_isaac64(48671UL, rn2);
+        if (!strcmp(mode, "polymorph")
+            && !newcham(mon, &mons[PM_GOBLIN], NO_NC_FLAGS))
+            return luaL_error(L, "Could not polymorph fixture actor");
+        if (!strcmp(mode, "tame") && !tamedog(mon, NULL, FALSE))
+            return luaL_error(L, "Could not tame fixture actor");
+        mon->mhpmax = 24;
+        mon->mhp = (!strcmp(mode, "wounded") || !strcmp(mode, "flight"))
+                       ? 6 : mon->mhpmax;
+        if (!strcmp(mode, "flight"))
+            monflee(mon, 20, TRUE, FALSE);
+        mon->movement = NORMAL_SPEED;
+        if (!strcmp(mode, "fast"))
+            mon->movement = 2 * NORMAL_SPEED;
+        if (!strcmp(mode, "repeat")) {
+            /* Stage the first completed action of an existing 3. command. */
+            gc.command_count = 3;
+            gc.cmd_key = '.';
+            gm.multi = 2;
+            svc.context.move = TRUE;
+        }
+        u.umovement = NORMAL_SPEED;
+        u.uhp = u.uhpmax = 80;
+        lua_pushinteger(L, mon->m_id);
+        lua_pushinteger(L, svm.moves);
+        return 2;
+    }
+}
+#endif /* DECISION_CHARACTERS_TEST */
+
 /* push a key into command queue */
 /* nh.pushkey("i"); */
 staticfn int
@@ -1896,6 +1972,9 @@ static const struct luaL_Reg nhl_functions[] = {
     { "pushkey", nhl_pushkey },
     { "doturn", nhl_doturn },
     { "debug_flags", nhl_debug_flags },
+#ifdef DECISION_CHARACTERS_TEST
+    { "decision_fixture", nhl_decision_fixture },
+#endif
     { "flip_level", nhl_flip_level },
     { NULL, NULL }
 };

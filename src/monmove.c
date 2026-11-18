@@ -5,6 +5,7 @@
 
 #include "hack.h"
 #include "mfndpos.h"
+#include "decision.h"
 #include "artifact.h"
 
 staticfn void msg_mon_movement(struct monst *, coordxy, coordxy) NONNULLARG1;
@@ -1729,6 +1730,10 @@ m_move(struct monst *mtmp, int after)
     struct mfndposdata mfp;
     long flag;
     coordxy omx = mtmp->mx, omy = mtmp->my;
+#ifdef DECISION_CHARACTERS
+    int decision_fd = -1;
+    unsigned considered = 0;
+#endif
 
     if (mtmp->mtrapped) {
         int i = mintrap(mtmp, NO_TRAP_FLAGS);
@@ -1921,6 +1926,9 @@ m_move(struct monst *mtmp, int after)
         int jcnt, cnt;
         int ndist, nidist;
         coord *mtrk;
+#ifdef DECISION_CHARACTERS
+        boolean decision_eligible;
+#endif
 
         cnt = mfndpos(mtmp, &mfp, flag);
         if (cnt == 0 && !is_unicorn(mtmp->data)) {
@@ -1944,6 +1952,10 @@ m_move(struct monst *mtmp, int after)
         }
         better_with_displacing =
             should_displace(mtmp, &mfp, ggx, ggy);
+#ifdef DECISION_CHARACTERS
+        decision_eligible = appr != 0 && !after
+                            && decision_characters_eligible(mtmp, ggx, ggy);
+#endif
         for (i = 0; i < cnt; i++) {
             if (avoid && (mfp.info[i] & NOTONL))
                 continue;
@@ -1964,6 +1976,10 @@ m_move(struct monst *mtmp, int after)
                             goto nxti;
             }
 
+#ifdef DECISION_CHARACTERS
+            if (decision_eligible)
+                considered |= 1U << i;
+#endif
             nearer = ((ndist = dist2(nx, ny, ggx, ggy)) < nidist);
 
             if ((appr == 1 && nearer) || (appr == -1 && !nearer)
@@ -2036,7 +2052,34 @@ m_move(struct monst *mtmp, int after)
             return MMOVE_DONE;
         }
 
+#ifdef DECISION_CHARACTERS
+        /* Ordinary steps can share these native move guards because they
+           do not dig, interact with occupants, or move boulders. The
+           region resolver may still veto the selected destination. */
+        if (considered) {
+            int selected = decision_characters_step(mtmp, &mfp, considered,
+                                                     chi, &decision_fd);
+
+            if (selected >= 0) {
+                coordxy x = mfp.poss[selected].x, y = mfp.poss[selected].y;
+
+                if (m_in_out_region(mtmp, x, y)) {
+                    chi = selected;
+                    nix = x;
+                    niy = y;
+                } else {
+                    decision_characters_outcome(decision_fd, FALSE);
+                    decision_fd = -1;
+                    /* Vetoes happen before the region callbacks take effect. */
+                    if (selected == chi)
+                        return MMOVE_DONE;
+                }
+            }
+        }
+        if (decision_fd < 0 && !m_in_out_region(mtmp, nix, niy))
+#else
         if (!m_in_out_region(mtmp, nix, niy))
+#endif
             return MMOVE_DONE;
 
         if ((mfp.info[chi] & ALLOW_ROCK) && m_can_break_boulder(mtmp)) {
@@ -2050,6 +2093,9 @@ m_move(struct monst *mtmp, int after)
            place_monster() only manipulate the head; they leave tail as-is */
         remove_monster(omx, omy);
         place_monster(mtmp, nix, niy);
+#ifdef DECISION_CHARACTERS
+        decision_characters_outcome(decision_fd, TRUE);
+#endif
         msg_mon_movement(mtmp, omx, omy);
         /* for a long worm, insert a new segment to reconnect the head
            with the tail; worm_move() keeps the end of the tail if worm

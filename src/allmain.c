@@ -6,6 +6,7 @@
 /* various code that was replicated in *main.c */
 
 #include "hack.h"
+#include "decision.h"
 
 #ifndef NO_SIGNAL
 #include <signal.h>
@@ -201,6 +202,9 @@ moveloop_core(void)
         makewish(); /* clears resume_wish */
 
     if (svc.context.move) {
+#ifdef DECISION_CHARACTERS
+        decision_characters_new_action();
+#endif
         /* actual time passed */
         u.umovement -= NORMAL_SPEED;
 

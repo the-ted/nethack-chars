@@ -89,7 +89,7 @@ tile2x11.h  winX.h      xwindow.h   xwindowp.h
 (files for all versions)
 align.h       amiconf.h     artifact.h    artilist.h    attrib.h
 botl.h        color.h       config.h      config1.h     context.h
-coord.h       cstd.h        decl.h        defsym.h      dgn_file.h
+coord.h       cstd.h        decision.h    decl.h        defsym.h      dgn_file.h
 display.h     dlb.h         dungeon.h     engrave.h     extern.h
 flag.h        fnamesiz.h    func_tab.h    global.h      hack.h
 hacklib.h     integer.h     isaac64.h     lint.h        mail.h
@@ -281,7 +281,7 @@ src:
 (files for all versions)
 allmain.c   alloc.c     apply.c     artifact.c  attrib.c    ball.c
 bones.c     botl.c      calendar.c  cfgfiles.c  cmd.c       coloratt.c
-date.c      dbridge.c   decl.c      detect.c    dig.c       display.c
+date.c      dbridge.c   decision.c  decl.c      detect.c    dig.c       display.c
 dlb.c       do.c        do_name.c   do_wear.c   dog.c       dogmove.c
 dokick.c    dothrow.c   drawing.c   dungeon.c   earlyarg.c  eat.c
 end.c       engrave.c   exper.c     explode.c   extralev.c  files.c

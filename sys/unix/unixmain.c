@@ -817,7 +817,14 @@ sys_random_seed(void)
     boolean no_seed = TRUE;
 #ifdef DEV_RANDOM
     FILE *fptr;
+#endif
+#ifdef DECISION_CHARACTERS_TEST
+    const char *fixture = getenv("NETHACK_DECISION_FIXTURE");
 
+    if (fixture && !strcmp(fixture, "1"))
+        return 48671UL;
+#endif
+#ifdef DEV_RANDOM
     fptr = fopen(DEV_RANDOM, "r");
     if (fptr) {
         fread(&seed, sizeof (long), 1, fptr);

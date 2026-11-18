@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+root=$PWD
+profile=stage
+flags='-g -I../include -DNOSHELL -DNOSUSPEND -DNOMAIL -DCOMPRESS=\"/usr/bin/gzip\" -DCOMPRESS_EXTENSION=\".gz\"'
+
+case "${1:-}" in
+    '') ;;
+    --test)
+        profile=test
+        flags="$flags -DDECISION_CHARACTERS_TEST"
+        ;;
+    *) printf 'Usage: %s [--test]\n' "$0" >&2; exit 2 ;;
+esac
+
+mkdir -p build/deps
+archive="$root/build/deps/lua-5.4.8.tar.gz"
+if [[ ! -f "$archive" ]]; then
+    download=$(mktemp "$root/build/deps/lua-5.4.8.XXXXXX")
+    trap 'rm -f -- "$download"' EXIT
+    curl --fail --silent --show-error --location --proto '=https' \
+        --max-time 60 https://www.lua.org/ftp/lua-5.4.8.tar.gz -o "$download"
+    sha256sum --check <<< "4f18ddae154e793e46eeab727c59ef1c0c0c2b744e7b94219710d76f530629ae  $download"
+    mv -- "$download" "$archive"
+    trap - EXIT
+fi
+# The digest is also recorded in the upstream submodules/CHKSUMS.
+(cd build/deps && sha256sum --ignore-missing --check "$root/submodules/CHKSUMS")
+
+# Build the current source, including local edits. Give the test and release
+# builds separate objects so build flags never get mixed.
+source_dir=$(mktemp -d "$root/build/source.XXXXXX")
+trap 'rm -rf -- "$source_dir"' EXIT
+cp -a dat doc include src sys util win "$source_dir/"
+mkdir -p "$source_dir/lib"
+tar -xzf "$archive" -C "$source_dir/lib"
+
+# Support a locally extracted Debian libncurses-dev in the cloud workspace.
+# On a regular development machine, the system development package suffices.
+if [[ -f "$root/build/deps/usr/include/curses.h" ]]; then
+    multiarch=$(gcc -print-multiarch)
+    export CPATH="$root/build/deps/usr/include:$root/build/deps/usr/include/$multiarch${CPATH:+:$CPATH}"
+    tty_libs='-l:libncurses.so.6 -l:libtinfo.so.6'
+else
+    tty_libs='-lncurses -ltinfo'
+fi
+
+cd "$source_dir"
+(cd sys/unix && sh setup.sh hints/linux-minimal)
+# Recursive upstream rules can build makedefs concurrently at high job counts.
+make -j1 CFLAGS="$flags" WINTTYLIB="$tty_libs" GITINFO=0 nethack
+prefix="$root/build/$profile"
+# Upstream install reinitializes this dedicated staging prefix.
+make -j1 CFLAGS="$flags" WINTTYLIB="$tty_libs" GITINFO=0 PREFIX="$prefix" SHELLDIR= install
+assets="$prefix/games/lib/nethackdir"
+if [[ "$profile" == test ]]; then
+    sed '/^GDBPATH=/d; /^GREPPATH=/d' sys/unix/sysconf > "$assets/sysconf"
+else
+    awk '
+        /^(GDBPATH|GREPPATH)=/ { next }
+        /^WIZARDS=/   { print "WIZARDS="; next }
+        /^EXPLORERS=/ { print "EXPLORERS="; next }
+        { print }
+    ' sys/unix/sysconf > "$assets/sysconf"
+fi
+printf 'NetHack 5.0.0 with decision-characters staged at %s\n' "$assets"

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>NetHack · Decision Characters</title>
+  <link rel="stylesheet" href="/xterm.css">
+  <link rel="stylesheet" href="/game.css">
+  <script src="/xterm.js" defer></script>
+  <script src="/xterm-fit.js" defer></script>
+  <script src="/game.js" defer></script>
+</head>
+<body>
+  <main class="layout">
+    <header class="masthead">
+      <div>
+        <h1>NetHack<span class="cursor" aria-hidden="true">_</span></h1>
+        <p class="edition">Decision Characters</p>
+      </div>
+      <label class="decision">
+        <input id="decision-toggle" type="checkbox" role="switch" disabled aria-describedby="decision-status">
+        <span>
+          <strong>Model decisions</strong>
+          <small id="decision-status">Connecting</small>
+        </span>
+      </label>
+    </header>
+
+    <section class="console" aria-label="Game">
+      <div class="console-bar">
+        <span class="state-dot" aria-hidden="true"></span>
+        <span id="game-status" role="status">Opening game…</span>
+        <button id="start-game" type="button" hidden>Open game</button>
+      </div>
+      <div class="console-scroll">
+        <div id="game-terminal" aria-label="NetHack game terminal"></div>
+      </div>
+    </section>
+
+    <footer class="controls" aria-label="Keyboard controls">
+      <span><kbd>h</kbd> <kbd>j</kbd> <kbd>k</kbd> <kbd>l</kbd> Move</span>
+      <span><kbd>y</kbd> <kbd>u</kbd> <kbd>b</kbd> <kbd>n</kbd> Diagonal</span>
+      <span><kbd>i</kbd> Inventory</span>
+      <span><kbd>S</kbd> Save</span>
+      <span><kbd>?</kbd> Help</span>
+      <span><kbd>Esc</kbd> Cancel</span>
+    </footer>
+  </main>
+</body>
+</html>

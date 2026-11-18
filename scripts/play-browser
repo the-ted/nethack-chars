@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.."
+assets=${NETHACK_ASSETS:-build/stage/games/lib/nethackdir}
+if [[ ! -x "${NETHACK_BIN:-$assets/nethack}" ]]; then
+    (unset OPENAI_API_KEY; scripts/build-browser)
+fi
+if [[ ! -d browser/node_modules ]]; then
+    (
+        unset OPENAI_API_KEY
+        export npm_config_cache="${npm_config_cache:-$PWD/build/npm-cache}"
+        export npm_config_devdir="${npm_config_devdir:-$PWD/build/node-gyp}"
+        npm --prefix browser ci --no-audit --no-fund
+    )
+fi
+exec node --use-env-proxy browser/server.mjs
