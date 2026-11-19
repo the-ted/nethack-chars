@@ -2,6 +2,8 @@
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /*-Copyright (c) Robert Patrick Rankin, 2012. */
 /* NetHack may be freely redistributed.  See license for details. */
+/* Modified by nethack-chars on 2026-11-18.
+ * Reset the monster decision budget for each player action. */
 
 /* various code that was replicated in *main.c */
 

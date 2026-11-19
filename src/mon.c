@@ -2,6 +2,8 @@
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /*-Copyright (c) Derek S. Ray, 2015. */
 /* NetHack may be freely redistributed.  See license for details. */
+/* Modified by nethack-chars on 2026-11-19.
+ * Added selection and pickup of individual floor items. */
 
 #include "hack.h"
 #include "decision.h"

@@ -2,6 +2,8 @@
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /*-Copyright (c) Pasi Kallinen, 2016. */
 /* NetHack may be freely redistributed.  See license for details. */
+/* Modified by nethack-chars on 2026-11-19.
+ * Added aimed attacks with a selected item and recorded their use. */
 
 #include "hack.h"
 #include "decision.h"

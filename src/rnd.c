@@ -1,6 +1,8 @@
 /* NetHack 5.0	rnd.c	$NHDT-Date: 1596498205 2020/08/03 23:43:25 $  $NHDT-Branch: NetHack-3.7 $:$NHDT-Revision: 1.30 $ */
 /*      Copyright (c) 2004 by Robert Patrick Rankin               */
 /* NetHack may be freely redistributed.  See license for details. */
+/* Modified by nethack-chars on 2026-11-19.
+ * Preserved RNG state while previewing possible monster actions. */
 
 #include "hack.h"
 #include "decision.h"

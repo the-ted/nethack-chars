@@ -2,6 +2,8 @@
 /* Copyright (c) Stichting Mathematisch Centrum, Amsterdam, 1985. */
 /*-Copyright (c) Michael Allison, 2006. */
 /* NetHack may be freely redistributed.  See license for details. */
+/* Modified by nethack-chars on 2026-11-18 and 2026-11-19.
+ * Integrated monster decisions into native turn and movement resolution. */
 
 #include "hack.h"
 #include "mfndpos.h"

@@ -1,6 +1,8 @@
 /* NetHack 5.0	extern.h	$NHDT-Date: 1770949988 2026/02/12 18:33:08 $  $NHDT-Branch: NetHack-3.7 $:$NHDT-Revision: 1.1523 $ */
 /* Copyright (c) Steve Creps, 1988.                               */
 /* NetHack may be freely redistributed.  See license for details. */
+/* Modified by nethack-chars on 2026-11-19.
+ * Declared helpers for selecting, wielding, and throwing specific items. */
 
 #ifndef EXTERN_H
 #define EXTERN_H

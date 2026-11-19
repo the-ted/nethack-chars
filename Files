@@ -3,6 +3,9 @@ in their standard manner on a UNIX system.  It indicates which files are
 necessary for which versions, so that you can tell which files may be deleted
 from or not transferred to your system if you wish.
 
+(Modified by nethack-chars on 2026-11-18.
+Listed the decision-characters source and header.)
+
 (Note: we ignore various dot files related to git.)
 
 .:
