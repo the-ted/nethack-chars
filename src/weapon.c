@@ -9,6 +9,7 @@
  *      code for monsters.
  */
 #include "hack.h"
+#include "decision.h"
 
 staticfn void give_may_advance_msg(int);
 staticfn void finish_towel_change(struct obj *obj, int) NONNULLARG1;
@@ -465,19 +466,19 @@ silver_sears(struct monst *magr UNUSED, struct monst *mdef,
     }
 }
 
-staticfn struct obj *oselect(struct monst *, int);
+staticfn struct obj *oselect(struct monst *, int, struct obj *);
 #define Oselect(x) \
-    do {                                        \
-        if ((otmp = oselect(mtmp, x)) != 0)     \
-            return otmp;                        \
+    do {                                         \
+        if ((otmp = oselect(mtmp, x, only)) != 0) \
+            return otmp;                         \
     } while (0)
 
 staticfn struct obj *
-oselect(struct monst *mtmp, int type)
+oselect(struct monst *mtmp, int type, struct obj *only)
 {
     struct obj *otmp;
 
-    for (otmp = mtmp->minvent; otmp; otmp = otmp->nobj) {
+    for (otmp = only ? only : mtmp->minvent; otmp; otmp = only ? NULL : otmp->nobj) {
         if (otmp->otyp != type)
             continue;
 
@@ -530,7 +531,7 @@ autoreturn_weapon(struct obj *otmp)
 
 /* select a ranged weapon for the monster */
 struct obj *
-select_rwep(struct monst *mtmp)
+select_rwep_from(struct monst *mtmp, struct obj *only)
 {
     struct obj *otmp;
     struct obj *mwep;
@@ -559,7 +560,7 @@ select_rwep(struct monst *mtmp)
     mweponly = (mwelded(mwep) && mtmp->weapon_check == NO_WEAPON_WANTED);
     if (dist2(mtmp->mx, mtmp->my, mtmp->mux, mtmp->muy) <= 13
         && couldsee(mtmp->mx, mtmp->my)) {
-        if (is_art(mwep, ART_SNICKERSNEE)) {
+        if ((!only || mwep == only) && is_art(mwep, ART_SNICKERSNEE)) {
             gp.propellor = mwep;
             return mwep;
         }
@@ -574,7 +575,7 @@ select_rwep(struct monst *mtmp)
                  || !objects[pwep[i]].oc_bimanual)
                 && (objects[pwep[i]].oc_material != SILVER
                     || !mon_hates_silver(mtmp))) {
-                if ((otmp = oselect(mtmp, pwep[i])) != 0
+                if ((otmp = oselect(mtmp, pwep[i], only)) != 0
                     && (otmp == mwep || !mweponly)) {
                     gp.propellor = otmp; /* force the monster to wield it */
                     return otmp;
@@ -596,7 +597,7 @@ select_rwep(struct monst *mtmp)
                  || !objects[arw->otyp].oc_bimanual)
                 && (objects[arw->otyp].oc_material != SILVER
                     || !mon_hates_silver(mtmp))) {
-                if ((otmp = oselect(mtmp, arw->otyp)) != 0
+                if ((otmp = oselect(mtmp, arw->otyp, only)) != 0
                     && (otmp == mwep || !mweponly)) {
                     gp.propellor = otmp; /* force the monster to wield it */
                     return otmp;
@@ -616,7 +617,7 @@ select_rwep(struct monst *mtmp)
         /* (shooting rocks is already handled via the rwep[] ordering) */
         if (rwep[i] == DART && !likes_gems(mtmp->data)
             && m_carrying(mtmp, SLING)) { /* propellor */
-            for (otmp = mtmp->minvent; otmp; otmp = otmp->nobj)
+            for (otmp = only ? only : mtmp->minvent; otmp; otmp = only ? NULL : otmp->nobj)
                 if (otmp->oclass == GEM_CLASS
                     && (otmp->otyp != LOADSTONE || !otmp->cursed)) {
                     gp.propellor = m_carrying(mtmp, SLING);
@@ -631,19 +632,19 @@ select_rwep(struct monst *mtmp)
         if (prop < 0) {
             switch (-prop) {
             case P_BOW:
-                gp.propellor = oselect(mtmp, YUMI);
+                gp.propellor = oselect(mtmp, YUMI, NULL);
                 if (!gp.propellor)
-                    gp.propellor = oselect(mtmp, ELVEN_BOW);
+                    gp.propellor = oselect(mtmp, ELVEN_BOW, NULL);
                 if (!gp.propellor)
-                    gp.propellor = oselect(mtmp, BOW);
+                    gp.propellor = oselect(mtmp, BOW, NULL);
                 if (!gp.propellor)
-                    gp.propellor = oselect(mtmp, ORCISH_BOW);
+                    gp.propellor = oselect(mtmp, ORCISH_BOW, NULL);
                 break;
             case P_SLING:
-                gp.propellor = oselect(mtmp, SLING);
+                gp.propellor = oselect(mtmp, SLING, NULL);
                 break;
             case P_CROSSBOW:
-                gp.propellor = oselect(mtmp, CROSSBOW);
+                gp.propellor = oselect(mtmp, CROSSBOW, NULL);
             }
             if ((otmp = MON_WEP(mtmp)) && mwelded(otmp) && otmp != gp.propellor
                 && mtmp->weapon_check == NO_WEAPON_WANTED)
@@ -660,11 +661,11 @@ select_rwep(struct monst *mtmp)
              */
             if (rwep[i] != LOADSTONE) {
                 /* Don't throw a cursed weapon-in-hand or an artifact */
-                if ((otmp = oselect(mtmp, rwep[i])) && !otmp->oartifact
+                if ((otmp = oselect(mtmp, rwep[i], only)) && !otmp->oartifact
                     && !(otmp == MON_WEP(mtmp) && mwelded(otmp)))
                     return otmp;
             } else
-                for (otmp = mtmp->minvent; otmp; otmp = otmp->nobj) {
+                for (otmp = only ? only : mtmp->minvent; otmp; otmp = only ? NULL : otmp->nobj) {
                     if (otmp->otyp == LOADSTONE && !otmp->cursed)
                         return otmp;
                 }
@@ -702,7 +703,7 @@ static const NEARDATA short hwep[] = {
 
 /* select a hand to hand weapon for the monster */
 struct obj *
-select_hwep(struct monst *mtmp)
+select_hwep_from(struct monst *mtmp, struct obj *only)
 {
     struct obj *otmp;
     int i;
@@ -710,7 +711,7 @@ select_hwep(struct monst *mtmp)
     boolean wearing_shield = (mtmp->misc_worn_check & W_ARMS) != 0;
 
     /* prefer artifacts to everything else */
-    for (otmp = mtmp->minvent; otmp; otmp = otmp->nobj) {
+    for (otmp = only ? only : mtmp->minvent; otmp; otmp = only ? NULL : otmp->nobj) {
         if (otmp->oclass == WEAPON_CLASS && otmp->oartifact
             && touch_artifact(otmp, mtmp)
             && ((strong && !wearing_shield)
@@ -738,6 +739,18 @@ select_hwep(struct monst *mtmp)
 
     /* failure */
     return (struct obj *) 0;
+}
+
+struct obj *
+select_rwep(struct monst *mon)
+{
+    return select_rwep_from(mon, NULL);
+}
+
+struct obj *
+select_hwep(struct monst *mon)
+{
+    return select_hwep_from(mon, NULL);
 }
 
 /* Called after polymorphing a monster, robbing it, etc....  Monsters
@@ -845,6 +858,12 @@ mon_wield_item(struct monst *mon)
                    mon_nam(mon));
         return 0;
     }
+    return wield_mon_weapon(mon, obj, exclaim);
+}
+
+int
+wield_mon_weapon(struct monst *mon, struct obj *obj, boolean exclaim)
+{
     if (obj && obj != &hands_obj) {
         struct obj *mw_tmp = MON_WEP(mon);
 
@@ -882,6 +901,7 @@ mon_wield_item(struct monst *mon)
             mon->weapon_check = NO_WEAPON_WANTED;
             return 1;
         }
+        decision_note(mon, "wield", obj);
         mon->mw = obj; /* wield obj */
         setmnotwielded(mon, mw_tmp);
         mon->weapon_check = NEED_WEAPON;

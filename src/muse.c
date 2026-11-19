@@ -7,6 +7,7 @@
  */
 
 #include "hack.h"
+#include "decision.h"
 
 /* Let monsters use magic items.  Arbitrary assumptions: Monsters only use
  * scrolls when they can see, monsters know when wands have 0 charges,
@@ -19,7 +20,7 @@ staticfn void mzapwand(struct monst *, struct obj *, boolean) NONNULLPTRS;
 staticfn void mplayhorn(struct monst *, struct obj *, boolean) NONNULLPTRS;
 staticfn void mreadmsg(struct monst *, struct obj *) NONNULLPTRS;
 staticfn void mquaffmsg(struct monst *, struct obj *) NONNULLPTRS;
-staticfn boolean m_use_healing(struct monst *);
+staticfn boolean m_use_healing(struct monst *, struct obj *);
 staticfn boolean m_sees_sleepy_soldier(struct monst *);
 staticfn void m_tele(struct monst *, boolean, boolean, int);
 staticfn boolean m_next2m(struct monst *);
@@ -334,21 +335,21 @@ mquaffmsg(struct monst *mtmp, struct obj *otmp)
  */
 
 staticfn boolean
-m_use_healing(struct monst *mtmp)
+m_use_healing(struct monst *mtmp, struct obj *only)
 {
     struct obj *obj;
 
-    if ((obj = m_carrying(mtmp, POT_FULL_HEALING)) != 0) {
+    if ((obj = only ? only : m_carrying(mtmp, POT_FULL_HEALING)) && obj->otyp == POT_FULL_HEALING) {
         gm.m.defensive = obj;
         gm.m.has_defense = MUSE_POT_FULL_HEALING;
         return TRUE;
     }
-    if ((obj = m_carrying(mtmp, POT_EXTRA_HEALING)) != 0) {
+    if ((obj = only ? only : m_carrying(mtmp, POT_EXTRA_HEALING)) && obj->otyp == POT_EXTRA_HEALING) {
         gm.m.defensive = obj;
         gm.m.has_defense = MUSE_POT_EXTRA_HEALING;
         return TRUE;
     }
-    if ((obj = m_carrying(mtmp, POT_HEALING)) != 0) {
+    if ((obj = only ? only : m_carrying(mtmp, POT_HEALING)) && obj->otyp == POT_HEALING) {
         gm.m.defensive = obj;
         gm.m.has_defense = MUSE_POT_HEALING;
         return TRUE;
@@ -437,8 +438,9 @@ m_next2m(struct monst *mtmp)
 
 /* Select a defensive item/action for a monster.  Returns TRUE iff one is
    found. */
-boolean
-find_defensive(struct monst *mtmp, boolean tryescape)
+static boolean
+select_defensive(struct monst *mtmp, boolean tryescape, struct obj *only,
+                 const coord *location)
 {
     struct obj *obj;
     struct trap *t;
@@ -475,7 +477,7 @@ find_defensive(struct monst *mtmp, boolean tryescape)
     if (mtmp->mconf || mtmp->mstun || !mtmp->mcansee) {
         obj = 0;
         if (!nohands(mtmp->data)) {
-            for (obj = mtmp->minvent; obj; obj = obj->nobj)
+            for (obj = only ? only : mtmp->minvent; obj; obj = only ? NULL : obj->nobj)
                 if (obj->otyp == UNICORN_HORN && !obj->cursed)
                     break;
         }
@@ -489,7 +491,7 @@ find_defensive(struct monst *mtmp, boolean tryescape)
     if (mtmp->mconf || mtmp->mstun) {
         struct obj *liztin = 0;
 
-        for (obj = mtmp->minvent; obj; obj = obj->nobj) {
+        for (obj = only ? only : mtmp->minvent; obj; obj = only ? NULL : obj->nobj) {
             if (obj->otyp == CORPSE && obj->corpsenm == PM_LIZARD) {
                 gm.m.defensive = obj;
                 gm.m.has_defense = MUSE_LIZARD_CORPSE;
@@ -517,7 +519,7 @@ find_defensive(struct monst *mtmp, boolean tryescape)
      */
     if (!mtmp->mcansee && !nohands(mtmp->data)
         && mtmp->data != &mons[PM_PESTILENCE]) {
-        if (m_use_healing(mtmp))
+        if (m_use_healing(mtmp, only))
             return TRUE;
     }
 
@@ -531,7 +533,7 @@ find_defensive(struct monst *mtmp, boolean tryescape)
         && lined_up(mtmp)) { /* only lines up if distu range is within 5*5 */
         /* could use m_carrying(), then nxtobj() when matching wand
            is empty, but direct traversal is actually simpler here */
-        for (obj = mtmp->minvent; obj; obj = obj->nobj)
+        for (obj = only ? only : mtmp->minvent; obj; obj = only ? NULL : obj->nobj)
             if (obj->otyp == WAN_UNDEAD_TURNING && obj->spe > 0) {
                 gm.m.defensive = obj;
                 gm.m.has_defense = MUSE_WAN_UNDEAD_TURNING;
@@ -548,17 +550,19 @@ find_defensive(struct monst *mtmp, boolean tryescape)
 
         if (mtmp->mpeaceful) {
             if (!nohands(mtmp->data)) {
-                if (m_use_healing(mtmp))
+                if (m_use_healing(mtmp, only))
                     return TRUE;
             }
             return FALSE;
         }
     }
 
-    if (stuck || immobile || mtmp->mtrapped) {
+    if (only || stuck || immobile || mtmp->mtrapped) {
         ; /* fleeing by stairs or traps is not possible */
     } else if (levl[x][y].typ == STAIRS) {
         stway = stairway_at(x,y);
+        if (location && (location->x != x || location->y != y))
+            stway = NULL;
         if (stway && !stway->up && stway->tolev.dnum == u.uz.dnum) {
             if (!is_floater(mtmp->data))
                 gm.m.has_defense = MUSE_DOWNSTAIRS;
@@ -572,7 +576,9 @@ find_defensive(struct monst *mtmp, boolean tryescape)
         stway = stairway_at(x,y);
         if (stway && stway->up && stway->tolev.dnum == u.uz.dnum) {
             gm.m.has_defense = MUSE_UP_LADDER;
-        } else if (stway && !stway->up && stway->tolev.dnum == u.uz.dnum) {
+        } else if (location && (location->x != x || location->y != y))
+            stway = NULL;
+        if (stway && !stway->up && stway->tolev.dnum == u.uz.dnum) {
             if (!is_floater(mtmp->data))
                 gm.m.has_defense = MUSE_DN_LADDER;
         } else if (stway && stway->tolev.dnum != u.uz.dnum) {
@@ -601,6 +607,8 @@ find_defensive(struct monst *mtmp, boolean tryescape)
         /* look for a suitable trap among the viable spots */
         for (i = 0; i < 10; ++i) {
             xx = locs[i][0], yy = locs[i][1];
+            if (location && (location->x != xx || location->y != yy))
+                continue;
             if (!xx)
                 break; /* we've run out of spots */
             /* skip if it's hero's location
@@ -632,11 +640,11 @@ find_defensive(struct monst *mtmp, boolean tryescape)
         }
     }
 
-    if (nohands(mtmp->data)) /* can't use objects */
+    if (location || nohands(mtmp->data)) /* terrain-only probe or no hands */
         goto botm;
 
     if (is_mercenary(mtmp->data) && (obj = m_carrying(mtmp, BUGLE)) != 0
-        && m_sees_sleepy_soldier(mtmp)) {
+        && (!only || only == obj) && m_sees_sleepy_soldier(mtmp)) {
         gm.m.defensive = obj;
         gm.m.has_defense = MUSE_BUGLE;
     }
@@ -654,7 +662,7 @@ find_defensive(struct monst *mtmp, boolean tryescape)
 #define nomore(x)       if (gm.m.has_defense == x) continue;
     /* selection could be improved by collecting all possibilities
        into an array and then picking one at random */
-    for (obj = mtmp->minvent; obj; obj = obj->nobj) {
+    for (obj = only ? only : mtmp->minvent; obj; obj = only ? NULL : obj->nobj) {
         /* don't always use the same selection pattern */
         if (gm.m.has_defense && !rn2(3))
             break;
@@ -749,6 +757,12 @@ find_defensive(struct monst *mtmp, boolean tryescape)
 #undef nomore
 }
 
+boolean
+find_defensive(struct monst *mtmp, boolean tryescape)
+{
+    return select_defensive(mtmp, tryescape, NULL, NULL);
+}
+
 /* when a monster deliberately enters a trap, make sure the spot becomes
    accessible (trap doors and teleporters inside niches are located at
    secret corridor locations; convert such into normal corridor even if
@@ -802,6 +816,9 @@ use_defensive(struct monst *mtmp)
     struct trap *t;
     stairway *stway;
 
+#ifdef DECISION_CHARACTERS
+    decision_note(mtmp, otmp ? "defensive" : decision_terrain_use(gm.m.has_defense), otmp);
+#endif
     if ((i = precheck(mtmp, otmp)) != 0)
         return i;
     vis = cansee(mtmp->mx, mtmp->my);
@@ -1417,8 +1434,8 @@ mon_likes_objpile_at(struct monst *mtmp, coordxy x, coordxy y)
 /* Select an offensive item/action for a monster.  Returns TRUE iff one is
  * found.
  */
-boolean
-find_offensive(struct monst *mtmp)
+static boolean
+select_offensive(struct monst *mtmp, struct obj *only)
 {
     struct obj *obj, *mtmp_helmet;
     boolean reflection_skip;
@@ -1445,7 +1462,7 @@ find_offensive(struct monst *mtmp)
                        || monnear(mtmp, mtmp->mux, mtmp->muy));
     mtmp_helmet = which_armor(mtmp, W_ARMH);
     /* this picks the last viable item rather than prioritizing choices */
-    for (obj = mtmp->minvent; obj; obj = obj->nobj) {
+    for (obj = only ? only : mtmp->minvent; obj; obj = only ? NULL : obj->nobj) {
         if (!reflection_skip) {
             nomore(MUSE_WAN_DEATH);
             if (obj->otyp == WAN_DEATH && obj->spe > 0
@@ -1555,7 +1572,7 @@ find_offensive(struct monst *mtmp)
             && (hard_helmet(mtmp_helmet) || mtmp->mconf
                 || amorphous(mtmp->data) || passes_walls(mtmp->data)
                 || noncorporeal(mtmp->data) || unsolid(mtmp->data)
-                || !rn2(10))
+                || only || !rn2(10))
             && dist2(mtmp->mx, mtmp->my, mtmp->mux, mtmp->muy) <= 2
             && mtmp->mcansee && haseyes(mtmp->data)
             && !Is_rogue_level(&u.uz)
@@ -1568,7 +1585,7 @@ find_offensive(struct monst *mtmp)
             && ((!Blind && !resists_blnd(&gy.youmonst))
                 || hates_light(gy.youmonst.data))
             && dist2(mtmp->mx, mtmp->my, mtmp->mux, mtmp->muy) <= 2
-            && obj->spe > 0 && !rn2(6)) {
+            && obj->spe > 0 && (only || !rn2(6))) {
             gm.m.offensive = obj;
             gm.m.has_offense = MUSE_CAMERA;
         }
@@ -1591,6 +1608,12 @@ find_offensive(struct monst *mtmp)
     }
     return (boolean) !!gm.m.has_offense;
 #undef nomore
+}
+
+boolean
+find_offensive(struct monst *mtmp)
+{
+    return select_offensive(mtmp, NULL);
 }
 
 staticfn int
@@ -1834,6 +1857,7 @@ use_offensive(struct monst *mtmp)
         mtmp->mwandexp ? buzz : buzz_force_miss;
 
     /* offensive potions are not drunk, they're thrown */
+    decision_note(mtmp, "offensive", otmp);
     if (otmp->oclass != POTION_CLASS && (i = precheck(mtmp, otmp)) != 0)
         return i;
     oseen = canseemon(mtmp);
@@ -2091,8 +2115,8 @@ rnd_offensive_item(struct monst *mtmp)
 #define MUSE_POT_POLYMORPH 9
 #define MUSE_BAG 10
 
-boolean
-find_misc(struct monst *mtmp)
+static boolean
+select_misc(struct monst *mtmp, struct obj *only, const coord *location)
 {
     struct obj *obj;
     struct permonst *mdat = mtmp->data;
@@ -2117,7 +2141,7 @@ find_misc(struct monst *mtmp)
     if (dist2(x, y, mtmp->mux, mtmp->muy) > 36)
         return FALSE;
 
-    if (!stuck && !immobile && !mtmp->mtrapped && (mtmp->cham == NON_PM)
+    if (!only && !stuck && !immobile && !mtmp->mtrapped && (mtmp->cham == NON_PM)
         && mons[(pmidx = monsndx(mdat))].difficulty < 6) {
         boolean ignore_boulders = (verysmall(mdat) || throws_rocks(mdat)
                                    || passes_walls(mdat)),
@@ -2125,7 +2149,8 @@ find_misc(struct monst *mtmp)
 
         for (xx = x - 1; xx <= x + 1; xx++)
             for (yy = y - 1; yy <= y + 1; yy++)
-                if (isok(xx, yy) && !u_at(xx, yy)
+                if ((!location || (location->x == xx && location->y == yy))
+                    && isok(xx, yy) && !u_at(xx, yy)
                     && (diag_ok || xx == x || yy == y)
                     && ((xx == x && yy == y) || !svl.level.monsters[xx][yy]))
                     if ((t = t_at(xx, yy)) != 0
@@ -2142,7 +2167,7 @@ find_misc(struct monst *mtmp)
                         }
                     }
     }
-    if (nohands(mdat))
+    if (location || nohands(mdat))
         return 0;
 
     /* normally we would want to bracket a macro expansion containing
@@ -2166,7 +2191,7 @@ find_misc(struct monst *mtmp)
      * monster with key should be able to unlock a locked floor
      * container and not know whether it is trapped.
      */
-    for (obj = mtmp->minvent; obj; obj = obj->nobj) {
+    for (obj = only ? only : mtmp->minvent; obj; obj = only ? NULL : obj->nobj) {
         /* Monsters shouldn't recognize cursed items; this kludge is
            necessary to prevent serious problems though... */
         if (obj->otyp == POT_GAIN_LEVEL
@@ -2179,7 +2204,7 @@ find_misc(struct monst *mtmp)
         if (obj->otyp == BULLWHIP && !mtmp->mpeaceful
             /* the random test prevents whip-wielding
                monster from attempting disarm every turn */
-            && uwep && !rn2(5) && obj == MON_WEP(mtmp)
+            && uwep && (only || !rn2(5)) && obj == MON_WEP(mtmp)
             /* hero's location must be known and adjacent */
             && u_at(mtmp->mux, mtmp->muy)
             && m_next2u(mtmp)
@@ -2232,7 +2257,7 @@ find_misc(struct monst *mtmp)
             gm.m.has_misc = MUSE_POT_POLYMORPH;
         }
         nomore(MUSE_BAG);
-        if (Is_container(obj) && obj->otyp != BAG_OF_TRICKS && !rn2(5)
+        if (Is_container(obj) && obj->otyp != BAG_OF_TRICKS && (only || !rn2(5))
             && !SchroedingersBox(obj)
             && !gm.m.has_misc && Has_contents(obj)
             && !obj->olocked && !obj->otrapped) {
@@ -2242,6 +2267,12 @@ find_misc(struct monst *mtmp)
     }
     return (boolean) !!gm.m.has_misc;
 #undef nomore
+}
+
+boolean
+find_misc(struct monst *mtmp)
+{
+    return select_misc(mtmp, NULL, NULL);
 }
 
 /* type of monster to polymorph into; defaults to one suitable for the
@@ -2389,6 +2420,7 @@ use_misc(struct monst *mtmp)
     struct trap *t;
     struct obj *otmp = gm.m.misc;
 
+    decision_note(mtmp, otmp ? "misc" : "enter polymorph trap", otmp);
     if ((i = precheck(mtmp, otmp)) != 0)
         return i;
     vis = cansee(mtmp->mx, mtmp->my);
@@ -3307,3 +3339,31 @@ green_mon(struct monst *mon)
 }
 
 /*muse.c*/
+
+#ifdef DECISION_CHARACTERS
+boolean
+decision_find_item(struct monst *mon, enum decision_kind kind, struct obj *obj,
+                   const coord *location, boolean cornered)
+{
+    if (kind == DC_DEFENSE)
+        return select_defensive(mon, cornered, obj, location);
+    if (kind == DC_OFFENSE)
+        return select_offensive(mon, obj);
+    return select_misc(mon, obj, location);
+}
+
+const char *
+decision_terrain_use(int use)
+{
+    switch (use) {
+    case MUSE_TRAPDOOR: return "escape through hole";
+    case MUSE_TELEPORT_TRAP: return "enter teleport trap";
+    case MUSE_UPSTAIRS: return "climb stairs";
+    case MUSE_DOWNSTAIRS: return "descend stairs";
+    case MUSE_UP_LADDER: return "climb ladder";
+    case MUSE_DN_LADDER: return "descend ladder";
+    case MUSE_SSTAIRS: return "take branch stairs";
+    default: return "use defensive ability";
+    }
+}
+#endif

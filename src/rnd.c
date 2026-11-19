@@ -3,6 +3,7 @@
 /* NetHack may be freely redistributed.  See license for details. */
 
 #include "hack.h"
+#include "decision.h"
 
 #ifdef USE_ISAAC64
 #include "isaac64.h"
@@ -27,6 +28,20 @@ static struct rnglist_t rnglist[] = {
     { rn2, FALSE, { 0 } },                      /* CORE */
     { rn2_on_display_rng, FALSE, { 0 } },       /* DISP */
 };
+
+#ifdef DECISION_CHARACTERS
+/* Several native capability queries draw random numbers. Previewing a menu
+   must not perturb the next combat roll or a failed request's native turn. */
+void
+decision_collect_with_rng(struct monst *mon, int nearby, int attack,
+                          struct decision_menu *menu)
+{
+    isaac64_ctx saved = rnglist[CORE].rng_state;
+
+    decision_prepare(mon, nearby, attack, menu);
+    rnglist[CORE].rng_state = saved;
+}
+#endif
 
 staticfn int
 whichrng(int (*fn)(int))

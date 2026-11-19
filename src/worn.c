@@ -4,10 +4,11 @@
 /* NetHack may be freely redistributed.  See license for details. */
 
 #include "hack.h"
+#include "decision.h"
 
 staticfn void m_lose_armor(struct monst *, struct obj *, boolean) NONNULLPTRS;
 staticfn void clear_bypass(struct obj *) NO_NNARGS;
-staticfn void m_dowear_type(struct monst *, long, boolean, boolean)
+staticfn struct obj *m_dowear_type(struct monst *, long, boolean, boolean, struct obj *)
                                                                   NONNULLARG1;
 staticfn int extra_pref(struct monst *, struct obj *) NONNULLARG1;
 
@@ -756,53 +757,19 @@ find_mac(struct monst *mon)
 void
 m_dowear(struct monst *mon, boolean creation)
 {
-    boolean can_wear_armor;
+    static const long slots[] = { W_AMUL, W_ARMU, W_ARMC, W_ARMH, W_ARMS,
+                                  W_ARMG, W_ARMF, W_ARM };
+    int i;
 
-#define RACE_EXCEPTION TRUE
-    /* Note the restrictions here are the same as in dowear in do_wear.c
-     * except for the additional restriction on intelligence.  (Players
-     * are always intelligent, even if polymorphed).
-     */
-    if (verysmall(mon->data) || nohands(mon->data) || is_animal(mon->data))
-        return;
-    /* give mummies a chance to wear their wrappings
-     * and let skeletons wear their initial armor */
-    if (mindless(mon->data)
-        && (!creation || (mon->data->mlet != S_MUMMY
-                          && mon->data != &mons[PM_SKELETON])))
-        return;
-
-    m_dowear_type(mon, W_AMUL, creation, FALSE);
-    can_wear_armor = !cantweararm(mon->data); /* for suit, cloak, shirt */
-    /* can't put on shirt if already wearing suit */
-    if (can_wear_armor && !(mon->misc_worn_check & W_ARM))
-        m_dowear_type(mon, W_ARMU, creation, FALSE);
-    /* WrappingAllowed() makes any size between small and huge eligible;
-       treating small as a special case allows hobbits, gnomes, and
-       kobolds to wear all cloaks; large and huge allows giants and such
-       to wear mummy wrappings but not other cloaks */
-    if (can_wear_armor || WrappingAllowed(mon->data))
-        m_dowear_type(mon, W_ARMC, creation, FALSE);
-    m_dowear_type(mon, W_ARMH, creation, FALSE);
-    if (!MON_WEP(mon) || !bimanual(MON_WEP(mon)))
-        m_dowear_type(mon, W_ARMS, creation, FALSE);
-    m_dowear_type(mon, W_ARMG, creation, FALSE);
-    if (!slithy(mon->data) && mon->data->mlet != S_CENTAUR)
-        m_dowear_type(mon, W_ARMF, creation, FALSE);
-    if (can_wear_armor)
-        m_dowear_type(mon, W_ARM, creation, FALSE);
-    else
-        m_dowear_type(mon, W_ARM, creation, RACE_EXCEPTION);
+    for (i = 0; i < SIZE(slots); ++i)
+        (void) m_dowear_type(mon, slots[i], creation, FALSE, NULL);
 }
 
-staticfn void
-m_dowear_type(
-    struct monst *mon,
-    long flag,               /* wornmask value */
-    boolean creation,        /* no wear messages when mon is being created */
-    boolean racialexception) /* small monsters that are allowed for player
-                              * races (gnomes) can wear suits */
+staticfn struct obj *
+m_dowear_type(struct monst *mon, long flag, boolean creation, boolean preview,
+              struct obj *only)
 {
+    boolean racialexception = cantweararm(mon->data);
     struct obj *old, *best, *obj;
     long oldmask = 0L;
     int m_delay = 0;
@@ -810,20 +777,24 @@ m_dowear_type(
     boolean autocurse;
     char nambuf[BUFSZ];
 
-    if (mon->mfrozen)
-        return; /* probably putting previous item on */
-
-    /* Get a copy of monster's name before altering its visibility */
-    Strcpy(nambuf, See_invisible ? Monnam(mon) : mon_nam(mon));
+    if (mon->mfrozen || verysmall(mon->data) || nohands(mon->data)
+        || is_animal(mon->data)
+        || (mindless(mon->data) && (!creation || (mon->data->mlet != S_MUMMY
+                                          && mon->data != &mons[PM_SKELETON])))
+        || (flag == W_ARMU && (racialexception || (mon->misc_worn_check & W_ARM)))
+        || (flag == W_ARMC && racialexception && !WrappingAllowed(mon->data))
+        || (flag == W_ARMS && MON_WEP(mon) && bimanual(MON_WEP(mon)))
+        || (flag == W_ARMF && (slithy(mon->data) || mon->data->mlet == S_CENTAUR)))
+        return NULL;
 
     old = which_armor(mon, flag);
     if (old && old->cursed)
-        return;
+        return NULL;
     if (old && flag == W_AMUL && old->otyp != AMULET_OF_GUARDING)
-        return; /* no amulet better than life-saving or reflection */
+        return NULL; /* no amulet better than life-saving or reflection */
     best = old;
 
-    for (obj = mon->minvent; obj; obj = obj->nobj) {
+    for (obj = only ? only : mon->minvent; obj; obj = only ? NULL : obj->nobj) {
         switch (flag) {
         case W_AMUL:
             if (obj->oclass != AMULET_CLASS
@@ -903,7 +874,13 @@ m_dowear_type(
     }
  outer_break:
     if (!best || best == old)
-        return;
+        return NULL;
+
+    if (preview)
+        return best;
+    if (!creation)
+        decision_note(mon, "wear", best);
+    Strcpy(nambuf, See_invisible ? Monnam(mon) : mon_nam(mon));
 
     /* same auto-cursing behavior as for hero */
     autocurse = ((best->otyp == HELM_OF_OPPOSITE_ALIGNMENT
@@ -999,8 +976,16 @@ m_dowear_type(
          *     pline("%s suddenly appears!", Amonnam(mon)); */
         }
     }
+    return best;
 }
-#undef RACE_EXCEPTION
+
+#ifdef DECISION_CHARACTERS
+struct obj *
+decision_armor(struct monst *mon, long slot, boolean preview, struct obj *only)
+{
+    return m_dowear_type(mon, slot, FALSE, preview, only);
+}
+#endif
 
 struct obj *
 which_armor(struct monst *mon, long flag)

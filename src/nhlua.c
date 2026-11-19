@@ -1438,7 +1438,12 @@ nhl_decision_fixture(lua_State *L)
             return luaL_error(L, "Decision fixture actor is missing");
 
         if (argc == 2) {
-            if (strcmp(luaL_checkstring(L, 2), "recharge"))
+            const char *command = luaL_checkstring(L, 2);
+            if (!strcmp(command, "one move")) {
+                mon->movement = NORMAL_SPEED;
+                return 0;
+            }
+            if (strcmp(command, "recharge"))
                 return luaL_error(L, "Unknown decision fixture action");
             mon->movement = 2 * NORMAL_SPEED;
             return 0;
@@ -1449,6 +1454,13 @@ nhl_decision_fixture(lua_State *L)
         nhl_add_table_entry_int(L, "turn", svm.moves);
         nhl_add_table_entry_int(L, "hp", u.uhp);
         nhl_add_table_entry_int(L, "actor_hp", mon->mhp);
+        {
+            struct obj *darts = m_carrying(mon, DART);
+            nhl_add_table_entry_int(L, "darts", darts ? (int) darts->quan : 0);
+        }
+        nhl_add_table_entry_bool(L, "gloves", !!which_armor(mon, W_ARMG));
+        nhl_add_table_entry_bool(L, "open_door", IS_DOOR(levl[mon->mx][mon->my].typ)
+                                    && !closed_door(mon->mx, mon->my));
         nhl_add_table_entry_int(L, "rng", rn2(1000000000));
         return 1;
     }
@@ -1465,14 +1477,34 @@ nhl_decision_fixture(lua_State *L)
             return luaL_error(L, "Decision fixture actor was not placed");
 
         init_isaac64(48671UL, rn2);
+        /* Reproduce a revealed mimic or a shapechanger in its natural form. */
+        if (!strcmp(mode, "natural form")) {
+            HProtection_from_shape_changers |= FROMOUTSIDE;
+            normal_shape(mon);
+            mon->msleeping = 0;
+        }
         if (!strcmp(mode, "polymorph")
             && !newcham(mon, &mons[PM_GOBLIN], NO_NC_FLAGS))
             return luaL_error(L, "Could not polymorph fixture actor");
         if (!strcmp(mode, "tame") && !tamedog(mon, NULL, FALSE))
             return luaL_error(L, "Could not tame fixture actor");
+        /* Start the armor fixture with an unequipped item. Monster creation
+           normally equips armor before the first turn. */
+        if (!strcmp(mode, "armor")) {
+            struct obj *gloves = sobj_at(LEATHER_GLOVES, x, y);
+            if (!gloves)
+                return luaL_error(L, "Missing fixture gloves");
+            obj_extract_self(gloves);
+            (void) mpickobj(mon, gloves);
+            mon->misc_worn_check &= ~I_SPECIAL;
+        }
         mon->mhpmax = 24;
         mon->mhp = (!strcmp(mode, "wounded") || !strcmp(mode, "flight"))
                        ? 6 : mon->mhpmax;
+        if (!strcmp(mode, "escape")) {
+            mon->mhp = 6;
+            mon_learns_traps(mon, TELEP_TRAP);
+        }
         if (!strcmp(mode, "flight"))
             monflee(mon, 20, TRUE, FALSE);
         mon->movement = NORMAL_SPEED;

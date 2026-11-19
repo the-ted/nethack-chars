@@ -3,32 +3,22 @@ import { chmod, stat } from "node:fs/promises";
 import { createServer } from "node:net";
 import { dirname, isAbsolute } from "node:path";
 
+import { boundedInteger, parseRequest } from "./protocol.mjs";
+
+import { overallPrompt, monsterPrompts } from "./prompts.mjs";
+
 const endpoint = "https://api.openai.com/v1/decisions";
 const model = "gpt-6-luna";
-const choiceName = "step";
-const requestLimit = 4096;
-const defaultDeadlineMs = 430;
+const choiceName = "action";
+const requestLimit = 32768;
+// The engine allows a further 70 ms for the socket exchange and acknowledgement.
+function brokerDeadline() {
+    const setting = process.env.NETHACK_DECISION_TIMEOUT_MS ?? "";
+    const ms = /^[1-9][0-9]{2,4}$/.test(setting) ? Number(setting) : 0;
+    return (ms >= 500 && ms <= 10000 ? ms : 500) - 70;
+}
 const maxConcurrentCalls = 8;
 const providers = new WeakMap();
-const directions = new Map([
-    ["n", "north"], ["ne", "northeast"], ["e", "east"],
-    ["se", "southeast"], ["s", "south"], ["sw", "southwest"],
-    ["w", "west"], ["nw", "northwest"],
-]);
-
-const tactics = new Map([
-    ["goblin", "Prefer nearby allied support when wounded, then close toward the target."],
-    ["hobgoblin", "When healthy, close directly using the shortest distance to the target."],
-    ["hill orc", "Favor a flank when allies are already closing on the target."],
-    ["mordor orc", "Close toward the target while remaining near another ally."],
-    ["uruk-hai", "Preserve a firing lane if carrying usable ranged equipment. Otherwise close in."],
-    ["orc-captain", "Close from a square that supports as many nearby allies as possible."],
-    ["kobold", "Seek cover when critically injured. Otherwise close toward the target."],
-    ["large kobold", "When healthy and confronting an isolated target, close as quickly as possible."],
-    ["kobold leader", "Rally near several allies if outnumbered. Otherwise close toward the target."],
-    ["gnome", "Prefer a defensible narrow approach as you close toward the target."],
-]);
-
 function providerState(fetchImpl, key) {
     let credentials = providers.get(fetchImpl);
     if (!credentials) {
@@ -43,47 +33,6 @@ function providerState(fetchImpl, key) {
     return credentials.get(fingerprint);
 }
 
-function boundedInteger(value, limit = Number.MAX_SAFE_INTEGER) {
-    return Number.isSafeInteger(value) && value >= 0 && value <= limit;
-}
-
-function parseRequest(line) {
-    const request = JSON.parse(line);
-    if (!request || typeof request.id !== "string" || !/^[1-9][0-9]{0,19}$/.test(request.id)
-        || !boundedInteger(request.turn) || !boundedInteger(request.level, 65535)
-        || !boundedInteger(request.monster, 0xffffffff)
-        || !tactics.has(request.species)
-        || !["healthy", "wounded", "critical"].includes(request.health)
-        || !directions.has(request.native)
-        || !boundedInteger(request.allies, 65535) || !boundedInteger(request.opponents, 65535)
-        || typeof request.ranged !== "boolean"
-        || !Array.isArray(request.steps) || request.steps.length < 2 || request.steps.length > 8) {
-        throw new Error("Invalid decision request");
-    }
-    const ids = new Set();
-    const steps = request.steps.map((step) => {
-        if (!step) throw new Error("Invalid decision step");
-        const {
-            id, target_distance, closes, known_hazard, nearby_allies,
-            cover, firing_lane, narrow, flank,
-        } = step;
-        if (!directions.has(id) || ids.has(id)
-            || !boundedInteger(target_distance, 255) || !boundedInteger(nearby_allies, 65535)
-            || ![closes, known_hazard, cover, firing_lane, narrow, flank]
-                .every((flag) => typeof flag === "boolean")) {
-            throw new Error("Invalid decision step");
-        }
-        ids.add(id);
-        return {
-            id, target_distance, closes, known_hazard, nearby_allies,
-            cover, firing_lane, narrow, flank,
-        };
-    });
-    if (!ids.has(request.native)) throw new Error("Invalid native step");
-    const { id, turn, level, monster, species, health, allies, opponents, ranged } = request;
-    return { id, turn, level, monster, evidence: { species, health, allies, opponents, ranged, steps }, ids };
-}
-
 function retryDelay(retryAfter) {
     const now = Date.now();
     const delay = retryAfter && /^\d+$/.test(retryAfter)
@@ -92,24 +41,32 @@ function retryDelay(retryAfter) {
     return Number.isNaN(delay) ? 60_000 : Math.max(15_000, Math.min(delay, 300_000));
 }
 
+function describeAction(a) {
+    const parts = [a.action];
+    if (a.item) parts.push(a.item.class + " / " + a.item.type);
+    if (a.x !== undefined) {
+        parts.push(`at (${a.x},${a.y})`);
+        if (a.target_distance !== undefined) {
+            parts.push(`distance ${a.target_distance}`);
+            if (a.nearby_allies) parts.push(`near allies ${a.nearby_allies}`);
+            for (const key of ["closes", "known_hazard", "cover", "firing_lane", "narrow", "flank"])
+                if (a[key]) parts.push(key.replaceAll("_", " "));
+        }
+    }
+    return parts.join(", ");
+}
+
 async function askDecision(request, { apiKey, fetchImpl, state, signal }) {
     const { evidence, ids } = request;
+    const { actions, ...scene } = evidence;
     const body = {
         model,
-        input: [{ role: "user", content: [{ type: "input_json", data: evidence }] }],
+        input: [{ role: "user", content: [{ type: "input_json", data: scene }] }],
         questions: [{
             type: "choice",
             name: choiceName,
-            instructions: [
-                "Choose the step that best matches this monster's tactical preference.",
-                "A shorter target_distance is closer to the perceived target.",
-                "Allies and opponents are the counts the monster can perceive. Avoid known hazards when possible.",
-                tactics.get(evidence.species),
-            ].join(" "),
-            choices: evidence.steps.map(({ id }) => ({
-                value: id,
-                description: `Step ${directions.get(id)}`,
-            })),
+            instructions: `${overallPrompt} ${monsterPrompts.get(evidence.species)}`,
+            choices: actions.map(a => ({ value: a.id, description: describeAction(a) })),
         }],
     };
     const response = await fetchImpl(endpoint, {
@@ -176,7 +133,7 @@ export async function createDecisionBroker({
     apiKey = process.env.OPENAI_API_KEY,
     fetchImpl = globalThis.fetch,
     maxCalls = 500,
-    deadlineMs = defaultDeadlineMs,
+    deadlineMs = brokerDeadline(),
     onEvent = () => {},
 } = {}) {
     const key = apiKey?.trim();
@@ -190,7 +147,7 @@ export async function createDecisionBroker({
     if (!parent.isDirectory() || (parent.mode & 0o077) || parent.uid !== process.getuid()) {
         throw new Error("The decision socket directory must be private and owned by the server");
     }
-    if (!boundedInteger(maxCalls) || !boundedInteger(deadlineMs, defaultDeadlineMs) || deadlineMs === 0) {
+    if (!boundedInteger(maxCalls) || !boundedInteger(deadlineMs, 9930) || deadlineMs === 0) {
         throw new TypeError("Invalid decision session limits");
     }
 
@@ -237,7 +194,7 @@ export async function createDecisionBroker({
     const server = createServer((socket) => {
         clients.add(socket);
         socket.setEncoding("utf8");
-        socket.setTimeout(2 * defaultDeadlineMs);
+        socket.setTimeout(2 * Math.max(430, deadlineMs));
         const connection = new AbortController();
         const start = performance.now();
         let pending = "";
@@ -290,9 +247,13 @@ export async function createDecisionBroker({
             phase = "decision";
             const answer = await decide(request, connection.signal);
             const { id, turn, level, monster } = request;
+            const selectedAction = request.evidence.actions.find(a => a.id === answer.choice);
             result = {
                 id, turn, level, monster, species: request.evidence.species,
-                selected: answer.choice ?? null, reason: answer.reason ?? null,
+                selected: answer.choice ?? null,
+                action: selectedAction?.action ?? null,
+                ...(selectedAction?.item && { item: selectedAction.item }),
+                reason: answer.reason ?? null,
                 requested: answer.requested ?? false, inputTokens: answer.inputTokens ?? null,
                 latencyMs: Math.round(performance.now() - start),
             };

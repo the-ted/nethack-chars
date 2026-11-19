@@ -1,0 +1,483 @@
+# Monsters addressable by decision-characters
+# NetHack 5.0.0, Unix terminal build (macOS and Linux), upstream base
+# 16ff59115315917b93185d026aeefea06db9b0f4 plus this fork's decision hook.
+#
+# Which monsters can I enable?
+#   enabled      Already uses the API on eligible turns (281).
+#   candidate    Ordinary hostile turns fit the current providers (0).
+#                Add a prompt row and a species encounter before shipping.
+#   conditional  A plausible extension with a specific prerequisite (89).
+#                Preserve the listed native behavior, add a provider or gate
+#                where needed, and test the special encounter before enabling.
+#   native-only  No independent ordinary decision turn in this build (13).
+#
+# All 271 candidates from the initial audit are now enabled alongside the
+# original ten. Conditional rows are the development backlog. Each compiled
+# PM_* appears once.
+# Form IDs distinguish human and animal lycanthropes with the same name.
+# Display names use NetHack's gender-neutral spelling. Player-role entries
+# designate NPC adventurers. NUMMONS and NON_PM are sentinels.
+#
+# Runtime scope
+#   The engine chooses among legal actions on one nearby hostile activation.
+#   Tame and peaceful actors, special role flags (isshk, isgd, ispriest,
+#   isminion), segmented worms, eating/helpless actors, an attached hero,
+#   Conflict, and repeated player commands have native turn paths. Eligibility
+#   follows the current form. Natural shapechangers also need an enabled base
+#   form. The actual quest leader and Wizard retain native turn handling.
+#   Waiting, sleep, detection and line of sight can
+#   preempt a request. A species' speed, attacks, anatomy and terrain shape
+#   its options. Passive attacks and on-death effects do not need API choices.
+#   G_NOGEN describes random generation, not the turn taken by an existing NPC.
+#
+# How the list was checked
+#   Matched the compiled terminal executable's --dumpenums against the active
+#   MON definitions in include/monsters.h. Reviewed base speed, attack arrays,
+#   flags, special movement, quest roles and action dispatch for all 383 IDs.
+#   CHARON is off in this build (Charon and Cerberus). MAIL_STRUCTURES retains
+#   the mail daemon ID even with NOMAIL. Disabled #if 0 definitions are outside
+#   the compiled roster.
+#
+#   Tested 370 mobile, non-placeholder forms in an isolated wizard build with
+#   every PM_* temporarily registered under its own wire name. Each trial
+#   placed an awake actor in a lit room four squares from the hero, with water
+#   for aquatic species. A local scripted broker chose an offered direction.
+#   A move counted only when the exact form requested it, the engine replied
+#   applied, and the actor's final displacement matched. This exercises a real
+#   game turn. Coverage of spell effects, role scripts, campaign progression and
+#   every terrain or inventory combination requires targeted encounters.
+#
+#   move           Movement observed in the first setup (341).
+#   prepared-move  Movement observed on retry with native shape normalization,
+#                  protection from shape changers, an awake actor and a
+#                  petrification-resistant hero (12).
+#   no-choice      No matching move in either setup (17).
+#   source         Excluded from the movement trial by design (13).
+#   The wizard-check column records the original audit. To verify the active
+#   config, run test/decision-characters/roster.py against a --test build.
+#   It checks an applied decision and two-turn history for every enabled form.
+#   Passing --live exercises the real Decisions service once per form.
+#   On 2026-11-19, all 281 enabled forms applied a live API choice in wizard
+#   mode using a 5000 ms total budget. All 281 also passed the scripted
+#   two-turn test with the default 500 ms budget on Linux.
+#   A wizard-created shopkeeper or guard body can move without its role flag.
+#   Those successes do not exercise a staffed shop or a live vault escort.
+#
+# What to preserve when extending a conditional row
+#   A chosen action can return from dochug before mind blast, royal jelly,
+#   inventory digestion, an undirected spell, quest speech or a taunt.
+#   The native choice reaches these paths. Progression-critical effects must
+#   also run when the model repeatedly chooses another action. Covetous actors
+#   run tactics before the hook but can attack an artifact holder in m_move.
+#   Applying runtime role fixes matters for the Master of Thieves in particular.
+#   Temple priests, shopkeepers, minions and guards must retain their assigned
+#   duties even when hostile. Endgame and role rows call for tests in context.
+#
+#   Native postmov handles metal and corpse eating after a normal step. For a
+#   corpse already underfoot, m_search_items can also spend the turn feeding.
+#   A generic wait skips that path. Other examples include a tengu teleport,
+#   a unicorn's escape and a long worm's separate tail attack. Medusa's gaze
+#   can kill before a choice and is skipped by the regular attack dispatcher.
+#
+# Evidence in this checkout
+#   include/monsters.h and include/mondata.h -- roster, forms and trait macros
+#   src/mon.c -- mcalcmove, movemon_singlemon, normal_shape
+#   src/monmove.c -- dochug, m_move, m_search_items, resolve_step, postmov
+#   src/decision.c and src/decision_actions.c -- eligibility, menu and execution
+#   src/mhitu.c, src/muse.c and src/worm.c -- attacks, items and worm segments
+#   src/makemon.c, src/shk.c, src/vault.c, src/priest.c -- assigned roles
+#   src/role.c, src/quest.c and src/wizard.c -- quest roles and artifact pursuit
+#   include/decision_prompts.conf -- configuration for the active subset
+#
+# Extract the active engine IDs with the following command.
+#   awk -F '\t' '$1 == "enabled" {print $2}' addressable-monsters.txt
+# status<TAB>engine ID<TAB>monster name<TAB>wizard check<TAB>reason or test focus
+
+# enabled
+enabled	PM_ACID_BLOB	acid blob	move	Movement choices and native passive effect
+enabled	PM_AIR_ELEMENTAL	air elemental	move	Native turns while engulfing the hero
+enabled	PM_ALEAX	Aleax	move	Divine minion instances stay native
+enabled	PM_AMOROUS_DEMON	amorous demon	move	Ordinary hostile turn
+enabled	PM_APE	ape	move	Ordinary hostile turn
+enabled	PM_ARCHEOLOGIST	archeologist	move	Ordinary hostile turn
+enabled	PM_ATTENDANT	attendant	move	Hostile guardian instance
+enabled	PM_BABY_BLACK_DRAGON	baby black dragon	move	Ordinary hostile turn
+enabled	PM_BABY_BLUE_DRAGON	baby blue dragon	move	Ordinary hostile turn
+enabled	PM_BABY_CROCODILE	baby crocodile	move	Ordinary hostile turn
+enabled	PM_BABY_GOLD_DRAGON	baby gold dragon	move	Ordinary hostile turn
+enabled	PM_BABY_GRAY_DRAGON	baby gray dragon	move	Ordinary hostile turn
+enabled	PM_BABY_GREEN_DRAGON	baby green dragon	move	Ordinary hostile turn
+enabled	PM_BABY_LONG_WORM	baby long worm	move	Unsegmented juvenile
+enabled	PM_BABY_ORANGE_DRAGON	baby orange dragon	move	Ordinary hostile turn
+enabled	PM_BABY_RED_DRAGON	baby red dragon	move	Ordinary hostile turn
+enabled	PM_BABY_SILVER_DRAGON	baby silver dragon	move	Ordinary hostile turn
+enabled	PM_BABY_WHITE_DRAGON	baby white dragon	move	Ordinary hostile turn
+enabled	PM_BABY_YELLOW_DRAGON	baby yellow dragon	move	Ordinary hostile turn
+enabled	PM_BALROG	balrog	move	Ordinary hostile turn
+enabled	PM_BALUCHITHERIUM	baluchitherium	move	Ordinary hostile turn
+enabled	PM_BARBARIAN	barbarian	move	Ordinary hostile turn
+enabled	PM_BARBED_DEVIL	barbed devil	move	Ordinary hostile turn
+enabled	PM_BAT	bat	move	Ordinary hostile turn
+enabled	PM_BLACK_DRAGON	black dragon	move	Ordinary hostile turn
+enabled	PM_BLACK_LIGHT	black light	move	Ordinary hostile turn
+enabled	PM_BLACK_NAGA	black naga	move	Ordinary hostile turn
+enabled	PM_BLACK_NAGA_HATCHLING	black naga hatchling	move	Ordinary hostile turn
+enabled	PM_BLACK_PUDDING	black pudding	move	Ordinary hostile turn
+enabled	PM_BLUE_DRAGON	blue dragon	move	Ordinary hostile turn
+enabled	PM_BONE_DEVIL	bone devil	move	Ordinary hostile turn
+enabled	PM_BROWN_PUDDING	brown pudding	move	Ordinary hostile turn
+enabled	PM_BUGBEAR	bugbear	move	Ordinary hostile turn
+enabled	PM_CAPTAIN	captain	move	Ordinary hostile turn
+enabled	PM_CARNIVOROUS_APE	carnivorous ape	move	Ordinary hostile turn
+enabled	PM_CAVE_DWELLER	cave dweller	move	Ordinary hostile turn
+enabled	PM_CHAMELEON	chameleon	prepared-move	Match current form
+enabled	PM_CHICKATRICE	chickatrice	move	Ordinary hostile turn
+enabled	PM_CHIEFTAIN	chieftain	move	Hostile guardian instance
+enabled	PM_CLAY_GOLEM	clay golem	move	Ordinary hostile turn
+enabled	PM_COCKATRICE	cockatrice	move	Ordinary hostile turn
+enabled	PM_COUATL	couatl	move	Divine minion instances stay native
+enabled	PM_COYOTE	coyote	move	Ordinary hostile turn
+enabled	PM_CROCODILE	crocodile	move	Ordinary hostile turn
+enabled	PM_CROESUS	Croesus	move	Vault guard checks his death separately
+enabled	PM_DINGO	dingo	move	Ordinary hostile turn
+enabled	PM_DISENCHANTER	disenchanter	move	Ordinary hostile turn
+enabled	PM_DISPLACER_BEAST	displacer beast	move	Ordinary hostile turn
+enabled	PM_DJINNI	djinni	move	Only after a hostile actor persists from creation
+enabled	PM_DOG	dog	move	Hostile untamed instance
+enabled	PM_DOPPELGANGER	doppelganger	prepared-move	Match current form
+enabled	PM_DUST_VORTEX	dust vortex	move	Native turns while engulfing the hero
+enabled	PM_DWARF	dwarf	move	Ordinary hostile turn
+enabled	PM_DWARF_LEADER	dwarf leader	move	Ordinary hostile turn
+enabled	PM_DWARF_MUMMY	dwarf mummy	move	Ordinary hostile turn
+enabled	PM_DWARF_RULER	dwarf ruler	move	Ordinary hostile turn
+enabled	PM_DWARF_ZOMBIE	dwarf zombie	move	Ordinary hostile turn
+enabled	PM_EARTH_ELEMENTAL	earth elemental	move	Ordinary hostile turn
+enabled	PM_ELECTRIC_EEL	electric eel	move	Aquatic habitat
+enabled	PM_ELF_MUMMY	elf mummy	move	Ordinary hostile turn
+enabled	PM_ELF_NOBLE	elf-noble	move	Ordinary hostile turn
+enabled	PM_ELF_ZOMBIE	elf zombie	move	Ordinary hostile turn
+enabled	PM_ELVEN_MONARCH	elven monarch	move	Ordinary hostile turn
+enabled	PM_ENERGY_VORTEX	energy vortex	move	Native turns while engulfing the hero
+enabled	PM_ERINYS	erinys	move	Native response before hook
+enabled	PM_ETTIN	ettin	move	Ordinary hostile turn
+enabled	PM_ETTIN_MUMMY	ettin mummy	move	Ordinary hostile turn
+enabled	PM_ETTIN_ZOMBIE	ettin zombie	move	Ordinary hostile turn
+enabled	PM_FIRE_ANT	fire ant	move	Ordinary hostile turn
+enabled	PM_FIRE_ELEMENTAL	fire elemental	move	Ordinary hostile turn
+enabled	PM_FIRE_GIANT	fire giant	move	Ordinary hostile turn
+enabled	PM_FIRE_VORTEX	fire vortex	move	Native turns while engulfing the hero
+enabled	PM_FLAMING_SPHERE	flaming sphere	move	Ordinary hostile turn
+enabled	PM_FLESH_GOLEM	flesh golem	move	Ordinary hostile turn
+enabled	PM_FLOATING_EYE	floating eye	move	Movement choices and native passive effect
+enabled	PM_FOG_CLOUD	fog cloud	move	Native turns while engulfing the hero
+enabled	PM_FOREST_CENTAUR	forest centaur	move	Ordinary hostile turn
+enabled	PM_FOX	fox	move	Ordinary hostile turn
+enabled	PM_FREEZING_SPHERE	freezing sphere	move	Ordinary hostile turn
+enabled	PM_FROST_GIANT	frost giant	move	Ordinary hostile turn
+enabled	PM_GARGOYLE	gargoyle	move	Ordinary hostile turn
+enabled	PM_GAS_SPORE	gas spore	move	Movement choices and native passive effect
+enabled	PM_GECKO	gecko	move	Ordinary hostile turn
+enabled	PM_GENETIC_ENGINEER	genetic engineer	move	Ordinary hostile turn
+enabled	PM_GHOST	ghost	move	Ordinary hostile turn
+enabled	PM_GIANT_ANT	giant ant	move	Ordinary hostile turn
+enabled	PM_GIANT_BAT	giant bat	move	Ordinary hostile turn
+enabled	PM_GIANT_BEETLE	giant beetle	move	Ordinary hostile turn
+enabled	PM_GIANT_EEL	giant eel	move	Aquatic habitat
+enabled	PM_GIANT_MIMIC	giant mimic	prepared-move	Revealed and active
+enabled	PM_GIANT_MUMMY	giant mummy	move	Ordinary hostile turn
+enabled	PM_GIANT_RAT	giant rat	move	Ordinary hostile turn
+enabled	PM_GIANT_SPIDER	giant spider	move	Native web placement after movement
+enabled	PM_GIANT_ZOMBIE	giant zombie	move	Ordinary hostile turn
+enabled	PM_GLASS_GOLEM	glass golem	move	Ordinary hostile turn
+enabled	PM_GLASS_PIERCER	glass piercer	move	Revealed and active
+enabled	PM_GNOME	gnome	move	Ordinary hostile turn
+enabled	PM_GNOME_LEADER	gnome leader	move	Ordinary hostile turn
+enabled	PM_GNOME_MUMMY	gnome mummy	move	Ordinary hostile turn
+enabled	PM_GNOME_RULER	gnome ruler	move	Ordinary hostile turn
+enabled	PM_GNOME_ZOMBIE	gnome zombie	move	Ordinary hostile turn
+enabled	PM_GOBLIN	goblin	move	Ordinary hostile turn
+enabled	PM_GOLDEN_NAGA_HATCHLING	golden naga hatchling	move	Ordinary hostile turn
+enabled	PM_GOLD_DRAGON	gold dragon	move	Ordinary hostile turn
+enabled	PM_GOLD_GOLEM	gold golem	move	Ordinary hostile turn
+enabled	PM_GRAY_DRAGON	gray dragon	move	Ordinary hostile turn
+enabled	PM_GRAY_OOZE	gray ooze	move	Ordinary hostile turn
+enabled	PM_GREEN_DRAGON	green dragon	move	Ordinary hostile turn
+enabled	PM_GREEN_ELF	Green-elf	move	Ordinary hostile turn
+enabled	PM_GREEN_SLIME	green slime	move	Ordinary hostile turn
+enabled	PM_GREMLIN	gremlin	move	Ordinary hostile turn
+enabled	PM_GREY_ELF	Grey-elf	move	Ordinary hostile turn
+enabled	PM_GRID_BUG	grid bug	move	Cardinal movement only
+enabled	PM_GUARDIAN_NAGA	guardian naga	move	Ordinary hostile turn
+enabled	PM_GUARDIAN_NAGA_HATCHLING	guardian naga hatchling	move	Ordinary hostile turn
+enabled	PM_HEALER	healer	move	Ordinary hostile turn
+enabled	PM_HELL_HOUND	hell hound	move	Ordinary hostile turn
+enabled	PM_HELL_HOUND_PUP	hell hound pup	move	Ordinary hostile turn
+enabled	PM_HEZROU	hezrou	move	Native cloud effects
+enabled	PM_HILL_GIANT	hill giant	move	Ordinary hostile turn
+enabled	PM_HILL_ORC	hill orc	move	Ordinary hostile turn
+enabled	PM_HOBBIT	hobbit	move	Ordinary hostile turn
+enabled	PM_HOBGOBLIN	hobgoblin	move	Ordinary hostile turn
+enabled	PM_HOMUNCULUS	homunculus	move	Ordinary hostile turn
+enabled	PM_HORNED_DEVIL	horned devil	move	Ordinary hostile turn
+enabled	PM_HORSE	horse	move	Hostile untamed instance
+enabled	PM_HOUSECAT	housecat	move	Hostile untamed instance
+enabled	PM_HUMAN_MUMMY	human mummy	move	Ordinary hostile turn
+enabled	PM_HUMAN_WEREJACKAL	werejackal	prepared-move	Human form
+enabled	PM_HUMAN_WERERAT	wererat	prepared-move	Human form
+enabled	PM_HUMAN_WEREWOLF	werewolf	prepared-move	Human form
+enabled	PM_HUMAN_ZOMBIE	human zombie	move	Ordinary hostile turn
+enabled	PM_HUNTER	hunter	move	Hostile guardian instance
+enabled	PM_ICE_DEVIL	ice devil	move	Ordinary hostile turn
+enabled	PM_ICE_TROLL	ice troll	move	Ordinary hostile turn
+enabled	PM_ICE_VORTEX	ice vortex	move	Native turns while engulfing the hero
+enabled	PM_IGUANA	iguana	move	Ordinary hostile turn
+enabled	PM_IRON_GOLEM	iron golem	move	Ordinary hostile turn
+enabled	PM_IRON_PIERCER	iron piercer	move	Revealed and active
+enabled	PM_JABBERWOCK	jabberwock	move	Ordinary hostile turn
+enabled	PM_JACKAL	jackal	move	Ordinary hostile turn
+enabled	PM_JAGUAR	jaguar	move	Ordinary hostile turn
+enabled	PM_JELLYFISH	jellyfish	move	Aquatic habitat
+enabled	PM_KEYSTONE_KOP	Keystone Kop	move	Ordinary hostile turn
+enabled	PM_KITTEN	kitten	move	Hostile untamed instance
+enabled	PM_KNIGHT	knight	move	Ordinary hostile turn
+enabled	PM_KOBOLD	kobold	move	Ordinary hostile turn
+enabled	PM_KOBOLD_LEADER	kobold leader	move	Ordinary hostile turn
+enabled	PM_KOBOLD_MUMMY	kobold mummy	move	Ordinary hostile turn
+enabled	PM_KOBOLD_ZOMBIE	kobold zombie	move	Ordinary hostile turn
+enabled	PM_KOP_KAPTAIN	Kop Kaptain	move	Ordinary hostile turn
+enabled	PM_KOP_LIEUTENANT	Kop Lieutenant	move	Ordinary hostile turn
+enabled	PM_KOP_SERGEANT	Kop Sergeant	move	Ordinary hostile turn
+enabled	PM_KRAKEN	kraken	move	Aquatic habitat
+enabled	PM_LARGE_CAT	large cat	move	Hostile untamed instance
+enabled	PM_LARGE_DOG	large dog	move	Hostile untamed instance
+enabled	PM_LARGE_KOBOLD	large kobold	move	Ordinary hostile turn
+enabled	PM_LARGE_MIMIC	large mimic	prepared-move	Revealed and active
+enabled	PM_LEATHER_GOLEM	leather golem	move	Ordinary hostile turn
+enabled	PM_LEMURE	lemure	move	Ordinary hostile turn
+enabled	PM_LEOCROTTA	leocrotta	move	Ordinary hostile turn
+enabled	PM_LICHEN	lichen	move	Ordinary hostile turn
+enabled	PM_LIEUTENANT	lieutenant	move	Ordinary hostile turn
+enabled	PM_LITTLE_DOG	little dog	move	Hostile untamed instance
+enabled	PM_LIZARD	lizard	move	Ordinary hostile turn
+enabled	PM_LURKER_ABOVE	lurker above	move	Revealed and active. Native turns while engulfing the hero
+enabled	PM_LYNX	lynx	move	Ordinary hostile turn
+enabled	PM_MANES	manes	move	Ordinary hostile turn
+enabled	PM_MASTODON	mastodon	move	Ordinary hostile turn
+enabled	PM_MINOTAUR	minotaur	move	Ordinary hostile turn
+enabled	PM_MONK	monk	move	Ordinary hostile turn
+enabled	PM_MONKEY	monkey	move	Ordinary hostile turn
+enabled	PM_MORDOR_ORC	Mordor orc	move	Ordinary hostile turn
+enabled	PM_MOUNTAIN_CENTAUR	mountain centaur	move	Ordinary hostile turn
+enabled	PM_MOUNTAIN_NYMPH	mountain nymph	move	Ordinary hostile turn
+enabled	PM_MUMAK	mumak	move	Ordinary hostile turn
+enabled	PM_NAZGUL	Nazgul	move	Ordinary hostile turn
+enabled	PM_NEANDERTHAL	neanderthal	move	Hostile guardian instance
+enabled	PM_NEWT	newt	move	Ordinary hostile turn
+enabled	PM_NINJA	ninja	move	Ordinary hostile turn
+enabled	PM_NURSE	nurse	move	Test healing an unequipped hero through the native attack
+enabled	PM_OCHRE_JELLY	ochre jelly	move	Native turns while engulfing the hero
+enabled	PM_OGRE	ogre	move	Ordinary hostile turn
+enabled	PM_OGRE_LEADER	ogre leader	move	Ordinary hostile turn
+enabled	PM_OGRE_TYRANT	ogre tyrant	move	Ordinary hostile turn
+enabled	PM_OLOG_HAI	Olog-hai	move	Ordinary hostile turn
+enabled	PM_ORANGE_DRAGON	orange dragon	move	Ordinary hostile turn
+enabled	PM_ORC_CAPTAIN	orc-captain	move	Ordinary hostile turn
+enabled	PM_ORC_MUMMY	orc mummy	move	Ordinary hostile turn
+enabled	PM_ORC_ZOMBIE	orc zombie	move	Ordinary hostile turn
+enabled	PM_OWLBEAR	owlbear	move	Ordinary hostile turn
+enabled	PM_PAGE	page	move	Hostile guardian instance
+enabled	PM_PANTHER	panther	move	Ordinary hostile turn
+enabled	PM_PAPER_GOLEM	paper golem	move	Ordinary hostile turn
+enabled	PM_PIT_FIEND	pit fiend	move	Ordinary hostile turn
+enabled	PM_PLAINS_CENTAUR	plains centaur	move	Ordinary hostile turn
+enabled	PM_PONY	pony	move	Hostile untamed instance
+enabled	PM_PYROLISK	pyrolisk	move	Ordinary hostile turn
+enabled	PM_PYTHON	python	move	Ordinary hostile turn
+enabled	PM_QUANTUM_MECHANIC	quantum mechanic	move	Ordinary hostile turn
+enabled	PM_QUASIT	quasit	move	Ordinary hostile turn
+enabled	PM_QUEEN_BEE	queen bee	move	Ordinary hostile turn
+enabled	PM_QUIVERING_BLOB	quivering blob	move	Ordinary hostile turn
+enabled	PM_RABID_RAT	rabid rat	move	Ordinary hostile turn
+enabled	PM_RANGER	ranger	move	Ordinary hostile turn
+enabled	PM_RAVEN	raven	move	Ordinary hostile turn
+enabled	PM_RED_DRAGON	red dragon	move	Ordinary hostile turn
+enabled	PM_RED_NAGA	red naga	move	Ordinary hostile turn
+enabled	PM_RED_NAGA_HATCHLING	red naga hatchling	move	Ordinary hostile turn
+enabled	PM_ROCK_MOLE	rock mole	move	Metal eating in postmov
+enabled	PM_ROCK_PIERCER	rock piercer	move	Revealed and active
+enabled	PM_ROCK_TROLL	rock troll	move	Ordinary hostile turn
+enabled	PM_ROGUE	rogue	move	Ordinary hostile turn
+enabled	PM_ROPE_GOLEM	rope golem	move	Ordinary hostile turn
+enabled	PM_ROSHI	roshi	move	Hostile guardian instance
+enabled	PM_ROTHE	rothe	move	Ordinary hostile turn
+enabled	PM_RUST_MONSTER	rust monster	move	Metal eating in postmov
+enabled	PM_SALAMANDER	salamander	move	Ordinary hostile turn
+enabled	PM_SAMURAI	samurai	move	Ordinary hostile turn
+enabled	PM_SASQUATCH	sasquatch	move	Ordinary hostile turn
+enabled	PM_SERGEANT	sergeant	move	Ordinary hostile turn
+enabled	PM_SEWER_RAT	sewer rat	move	Ordinary hostile turn
+enabled	PM_SHADE	shade	move	Ordinary hostile turn
+enabled	PM_SHARK	shark	move	Aquatic habitat
+enabled	PM_SHOCKING_SPHERE	shocking sphere	move	Ordinary hostile turn
+enabled	PM_SHRIEKER	shrieker	move	Native response before hook
+enabled	PM_SILVER_DRAGON	silver dragon	move	Ordinary hostile turn
+enabled	PM_SKELETON	skeleton	move	Ordinary hostile turn
+enabled	PM_SMALL_MIMIC	small mimic	prepared-move	Revealed and active
+enabled	PM_SOLDIER	soldier	move	Ordinary hostile turn
+enabled	PM_SOLDIER_ANT	soldier ant	move	Ordinary hostile turn
+enabled	PM_STALKER	stalker	move	Ordinary hostile turn
+enabled	PM_STEAM_VORTEX	steam vortex	move	Native turns while engulfing the hero. Native cloud effects
+enabled	PM_STONE_GIANT	stone giant	move	Ordinary hostile turn
+enabled	PM_STONE_GOLEM	stone golem	move	Ordinary hostile turn
+enabled	PM_STORM_GIANT	storm giant	move	Ordinary hostile turn
+enabled	PM_STRAW_GOLEM	straw golem	move	Ordinary hostile turn
+enabled	PM_STUDENT	student	move	Hostile guardian instance
+enabled	PM_THUG	thug	move	Hostile guardian instance
+enabled	PM_TIGER	tiger	move	Ordinary hostile turn
+enabled	PM_TITANOTHERE	titanothere	move	Ordinary hostile turn
+enabled	PM_TOURIST	tourist	move	Ordinary hostile turn
+enabled	PM_TRAPPER	trapper	move	Revealed and active. Native turns while engulfing the hero
+enabled	PM_TROLL	troll	move	Ordinary hostile turn
+enabled	PM_UMBER_HULK	umber hulk	move	Ordinary hostile turn
+enabled	PM_URUK_HAI	Uruk-hai	move	Ordinary hostile turn
+enabled	PM_VALKYRIE	valkyrie	move	Ordinary hostile turn
+enabled	PM_VAMPIRE	vampire	prepared-move	Match current form
+enabled	PM_VAMPIRE_BAT	vampire bat	move	Ordinary hostile turn
+enabled	PM_VAMPIRE_LEADER	vampire leader	prepared-move	Match current form
+enabled	PM_VIOLET_FUNGUS	violet fungus	move	Ordinary hostile turn
+enabled	PM_VROCK	vrock	move	Native cloud effects
+enabled	PM_WARG	warg	move	Ordinary hostile turn
+enabled	PM_WARHORSE	warhorse	move	Hostile untamed instance
+enabled	PM_WARRIOR	warrior	move	Hostile guardian instance
+enabled	PM_WATCHMAN	watchman	move	On-duty peaceful watch stays native
+enabled	PM_WATCH_CAPTAIN	watch captain	move	On-duty peaceful watch stays native
+enabled	PM_WATER_DEMON	water demon	move	Only after a hostile actor persists from creation
+enabled	PM_WATER_ELEMENTAL	water elemental	move	Ordinary hostile turn
+enabled	PM_WATER_NYMPH	water nymph	move	Ordinary hostile turn
+enabled	PM_WATER_TROLL	water troll	move	Ordinary hostile turn
+enabled	PM_WEREJACKAL	werejackal	move	Beast form
+enabled	PM_WERERAT	wererat	move	Beast form
+enabled	PM_WEREWOLF	werewolf	move	Beast form
+enabled	PM_WHITE_DRAGON	white dragon	move	Ordinary hostile turn
+enabled	PM_WINGED_GARGOYLE	winged gargoyle	move	Ordinary hostile turn
+enabled	PM_WINTER_WOLF	winter wolf	move	Ordinary hostile turn
+enabled	PM_WINTER_WOLF_CUB	winter wolf cub	move	Ordinary hostile turn
+enabled	PM_WOLF	wolf	move	Ordinary hostile turn
+enabled	PM_WOODCHUCK	woodchuck	move	Ordinary hostile turn
+enabled	PM_WOODLAND_ELF	Woodland-elf	move	Ordinary hostile turn
+enabled	PM_WOOD_GOLEM	wood golem	move	Ordinary hostile turn
+enabled	PM_WOOD_NYMPH	wood nymph	move	Ordinary hostile turn
+enabled	PM_WRAITH	wraith	move	Ordinary hostile turn
+enabled	PM_WUMPUS	wumpus	move	Ordinary hostile turn
+enabled	PM_XAN	xan	move	Ordinary hostile turn
+enabled	PM_XORN	xorn	move	Metal eating in postmov
+enabled	PM_YELLOW_DRAGON	yellow dragon	move	Ordinary hostile turn
+enabled	PM_YELLOW_LIGHT	yellow light	move	Ordinary hostile turn
+enabled	PM_YETI	yeti	move	Ordinary hostile turn
+enabled	PM_ZRUTY	zruty	move	Ordinary hostile turn
+
+# conditional
+conditional	PM_ABBOT	abbot	move	Undirected spell while moving. Hostile guardian instance
+conditional	PM_ACOLYTE	acolyte	move	Undirected spell while moving. Hostile guardian instance
+conditional	PM_ALIGNED_CLERIC	aligned cleric	no-choice	Temple priest or roaming minion. Undirected spell while moving
+conditional	PM_ANGEL	Angel	move	Post-attack taunt. Divine minion instances stay native
+conditional	PM_APPRENTICE	apprentice	move	Undirected spell while moving. Hostile guardian instance
+conditional	PM_ARCHON	Archon	move	Undirected spell while moving. Post-attack taunt. Divine minion instances stay native
+conditional	PM_ARCH_LICH	arch-lich	move	Covetous artifact targeting. Undirected spell while moving
+conditional	PM_ARCH_PRIEST	Arch Priest	no-choice	Quest leader dialogue and progression. Undirected spell while moving
+conditional	PM_ASHIKAGA_TAKAUJI	Ashikaga Takauji	move	Quest nemesis dialogue. Covetous artifact targeting
+conditional	PM_ASMODEUS	Asmodeus	move	Covetous artifact targeting
+conditional	PM_BAALZEBUB	Baalzebub	move	Covetous artifact targeting
+conditional	PM_BABY_PURPLE_WORM	baby purple worm	move	Feeding on a corpse underfoot
+conditional	PM_BARROW_WIGHT	barrow wight	move	Undirected spell while moving
+conditional	PM_BLACK_UNICORN	black unicorn	move	Line avoidance and escape teleport
+conditional	PM_CAVE_SPIDER	cave spider	move	Staying under a floor object
+conditional	PM_CENTIPEDE	centipede	move	Staying under a floor object
+conditional	PM_CHROMATIC_DRAGON	Chromatic Dragon	move	Quest nemesis dialogue. Covetous artifact targeting. Undirected spell while moving
+conditional	PM_CLERIC	cleric	move	Undirected spell while moving
+conditional	PM_COBRA	cobra	move	Staying under a floor object
+conditional	PM_CYCLOPS	Cyclops	move	Quest nemesis dialogue. Covetous artifact targeting
+conditional	PM_DARK_ONE	Dark One	move	Quest nemesis dialogue. Covetous artifact targeting. Undirected spell while moving
+conditional	PM_DEATH	Death	move	Test Astral encounter, boulder breaking and revival
+conditional	PM_DEMILICH	demilich	move	Undirected spell while moving
+conditional	PM_DEMOGORGON	Demogorgon	move	Covetous artifact targeting. Undirected spell while moving
+conditional	PM_DISPATER	Dispater	move	Covetous artifact targeting. Undirected spell while moving
+conditional	PM_FAMINE	Famine	move	Test Astral encounter, boulder breaking and revival
+conditional	PM_GARTER_SNAKE	garter snake	move	Staying under a floor object
+conditional	PM_GELATINOUS_CUBE	gelatinous cube	move	Inventory digestion
+conditional	PM_GERYON	Geryon	move	Covetous artifact targeting
+conditional	PM_GHOUL	ghoul	move	Feeding on a corpse underfoot
+conditional	PM_GNOMISH_WIZARD	gnomish wizard	move	Undirected spell while moving
+conditional	PM_GOLDEN_NAGA	golden naga	move	Undirected spell while moving
+conditional	PM_GRAND_MASTER	Grand Master	no-choice	Quest leader dialogue and progression. Undirected spell while moving
+conditional	PM_GRAY_UNICORN	gray unicorn	move	Line avoidance and escape teleport
+conditional	PM_GUARD	guard	move	Vault escort and corridor cleanup
+conditional	PM_GUIDE	guide	move	Undirected spell while moving. Hostile guardian instance
+conditional	PM_HIGH_CLERIC	high cleric	no-choice	Temple priest or roaming minion. Undirected spell while moving. Divine minion instances stay native
+conditional	PM_HIPPOCRATES	Hippocrates	no-choice	Quest leader dialogue and progression. Undirected spell while moving
+conditional	PM_IMP	imp	move	Post-attack taunt
+conditional	PM_IXOTH	Ixoth	move	Quest nemesis dialogue. Covetous artifact targeting. Undirected spell while moving
+conditional	PM_JUIBLEX	Juiblex	move	Covetous artifact targeting. Native turns while engulfing the hero
+conditional	PM_KILLER_BEE	killer bee	move	Queen promotion on royal jelly
+conditional	PM_KING_ARTHUR	King Arthur	no-choice	Quest leader dialogue and progression
+conditional	PM_KI_RIN	ki-rin	move	Undirected spell while moving. Divine minion instances stay native
+conditional	PM_KOBOLD_SHAMAN	kobold shaman	move	Undirected spell while moving
+conditional	PM_LEPRECHAUN	leprechaun	move	Gold-dependent retreat
+conditional	PM_LICH	lich	move	Undirected spell while moving
+conditional	PM_LONG_WORM	long worm	no-choice	Segmented body and tail attacks
+conditional	PM_LORD_CARNARVON	Lord Carnarvon	no-choice	Quest leader dialogue and progression. Undirected spell while moving
+conditional	PM_LORD_SATO	Lord Sato	no-choice	Quest leader dialogue and progression
+conditional	PM_LORD_SURTUR	Lord Surtur	move	Quest nemesis dialogue. Covetous artifact targeting
+conditional	PM_MARILITH	marilith	move	Post-attack taunt
+conditional	PM_MASTER_ASSASSIN	Master Assassin	move	Quest nemesis dialogue. Covetous artifact targeting
+conditional	PM_MASTER_KAEN	Master Kaen	move	Quest nemesis dialogue. Covetous artifact targeting. Undirected spell while moving
+conditional	PM_MASTER_LICH	master lich	move	Covetous artifact targeting. Undirected spell while moving
+conditional	PM_MASTER_MIND_FLAYER	master mind flayer	move	Psychic blast outside the attack array
+conditional	PM_MASTER_OF_THIEVES	Master of Thieves	no-choice	Quest leader dialogue and progression. Also a quest nemesis for another role
+conditional	PM_MEDUSA	Medusa	prepared-move	Petrifying gaze runs before the choice
+conditional	PM_MIND_FLAYER	mind flayer	move	Psychic blast outside the attack array
+conditional	PM_MINION_OF_HUHETOTL	Minion of Huhetotl	move	Quest nemesis dialogue. Covetous artifact targeting. Undirected spell while moving
+conditional	PM_NALFESHNEE	nalfeshnee	move	Undirected spell while moving
+conditional	PM_NALZOK	Nalzok	move	Quest nemesis dialogue. Covetous artifact targeting. Undirected spell while moving
+conditional	PM_NEFERET_THE_GREEN	Neferet the Green	no-choice	Quest leader dialogue and progression. Undirected spell while moving
+conditional	PM_NORN	Norn	no-choice	Quest leader dialogue and progression
+conditional	PM_ORCUS	Orcus	move	Covetous artifact targeting. Undirected spell while moving
+conditional	PM_ORC_SHAMAN	orc shaman	move	Undirected spell while moving
+conditional	PM_ORION	Orion	no-choice	Quest leader dialogue and progression. Undirected spell while moving
+conditional	PM_PELIAS	Pelias	no-choice	Quest leader dialogue and progression
+conditional	PM_PESTILENCE	Pestilence	move	Test Astral encounter, boulder breaking and revival
+conditional	PM_PIRANHA	piranha	move	Feeding on a corpse underfoot. Aquatic habitat
+conditional	PM_PIT_VIPER	pit viper	move	Staying under a floor object
+conditional	PM_PRISONER	prisoner	no-choice	Quest prisoner rescue and alignment reward
+conditional	PM_PURPLE_WORM	purple worm	move	Feeding on a corpse underfoot. Native turns while engulfing the hero
+conditional	PM_SANDESTIN	sandestin	prepared-move	Post-attack taunt. Match current form
+conditional	PM_SCORPION	scorpion	move	Staying under a floor object
+conditional	PM_SCORPIUS	Scorpius	move	Quest nemesis dialogue. Covetous artifact targeting
+conditional	PM_SHAMAN_KARNOV	Shaman Karnov	no-choice	Quest leader dialogue and progression. Undirected spell while moving
+conditional	PM_SHOPKEEPER	shopkeeper	move	Shop billing, pursuit and restitution
+conditional	PM_SNAKE	snake	move	Staying under a floor object
+conditional	PM_TENGU	tengu	move	Voluntary teleport
+conditional	PM_THOTH_AMON	Thoth Amon	move	Quest nemesis dialogue. Covetous artifact targeting. Undirected spell while moving
+conditional	PM_TITAN	titan	move	Undirected spell while moving
+conditional	PM_TWOFLOWER	Twoflower	no-choice	Quest leader dialogue and progression
+conditional	PM_VLAD_THE_IMPALER	Vlad the Impaler	move	Covetous artifact targeting. Match current form
+conditional	PM_WATER_MOCCASIN	water moccasin	move	Staying under a floor object
+conditional	PM_WHITE_UNICORN	white unicorn	move	Line avoidance and escape teleport
+conditional	PM_WIZARD	wizard	move	Undirected spell while moving
+conditional	PM_WIZARD_OF_YENDOR	Wizard of Yendor	move	Covetous artifact targeting. Wizard harassment, cloning and return. Undirected spell while moving. Post-attack taunt
+conditional	PM_YEENOGHU	Yeenoghu	move	Covetous artifact targeting
+
+# native-only
+native-only	PM_BLUE_JELLY	blue jelly	source	Zero base movement
+native-only	PM_BROWN_MOLD	brown mold	source	Zero base movement
+native-only	PM_ELF	elf	source	Race placeholder
+native-only	PM_GIANT	giant	source	Race placeholder
+native-only	PM_GREEN_MOLD	green mold	source	Zero base movement
+native-only	PM_HUMAN	human	source	Race placeholder
+native-only	PM_LONG_WORM_TAIL	long worm tail	source	Tail display entry with no independent actor
+native-only	PM_MAIL_DAEMON	mail daemon	source	Scripted courier removal
+native-only	PM_ORACLE	Oracle	source	Stationary Oracle consultation
+native-only	PM_ORC	orc	source	Race placeholder
+native-only	PM_RED_MOLD	red mold	source	Zero base movement
+native-only	PM_SPOTTED_JELLY	spotted jelly	source	Zero base movement
+native-only	PM_YELLOW_MOLD	yellow mold	source	Zero base movement

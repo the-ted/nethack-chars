@@ -791,6 +791,12 @@ dochug(struct monst *mtmp)
     /* check distance and scariness of attacks */
     distfleeck(mtmp, &inrange, &nearby, &scared);
 
+#ifdef DECISION_CHARACTERS
+    res = decision_turn(mtmp, inrange, nearby, scared);
+    if (res >= 0)
+        return res;
+#endif
+
     /* search for and potentially use defensive or miscellaneous items. */
     if (find_defensive(mtmp, FALSE)) {
         if (use_defensive(mtmp) != 0)
@@ -1705,6 +1711,110 @@ postmov(
     return mmoved;
 }
 
+
+/* Commit one mfndpos entry, including its interaction flags. Both selectors
+   share region, occupant, digging, trap, door and post-movement handling. */
+static int
+resolve_step(struct monst *mtmp, coordxy nix, coordxy niy, long info,
+             unsigned seenflgs, boolean can_tunnel, boolean can_unlock,
+             boolean can_open)
+{
+    coordxy omx = mtmp->mx, omy = mtmp->my;
+
+    if (!u_at(nix, niy) && itsstuck(mtmp))
+        return MMOVE_DONE;
+
+    if (m_digweapon_check(mtmp, nix, niy))
+        return MMOVE_DONE;
+
+    /* If ALLOW_U is set, either it's trying to attack you, or it
+     * thinks it is.  In either case, attack this spot in preference to
+     * all others.
+     */
+    /* Actually, this whole section of code doesn't work as you'd expect.
+     * Most attacks are handled in dochug().  It calls distfleeck(), which
+     * among other things sets nearby if the monster is near you--and if
+     * nearby is set, we never call m_move unless it is a special case
+     * (confused, stun, etc.)  The effect is that this ALLOW_U (and
+     * mfndpos) has no effect for normal attacks, though it lets a
+     * confused monster attack you by accident.
+     */
+    if (info & ALLOW_U) {
+        nix = mtmp->mux;
+        niy = mtmp->muy;
+    }
+    if (u_at(nix, niy)) {
+        mtmp->mux = u.ux;
+        mtmp->muy = u.uy;
+        return MMOVE_NOTHING;
+    }
+    /* The monster may attack another based on 1 of 2 conditions:
+     * 1 - It may be confused.
+     * 2 - It may mistake the monster for your (displaced) image.
+     * Pets get taken care of above and shouldn't reach this code.
+     * Conflict gets handled even farther away (movemon()).
+     */
+    if ((info & ALLOW_M) != 0
+        || (nix == mtmp->mux && niy == mtmp->muy))
+        return m_move_aggress(mtmp, nix, niy);
+
+    if ((info & ALLOW_MDISP) != 0) {
+        struct monst *mtmp2;
+        int mstatus;
+
+        mtmp2 = m_at(nix, niy); /* ALLOW_MDISP implies m_at() is !Null */
+        decision_note(mtmp, "displace monster", NULL);
+        mstatus = mdisplacem(mtmp, mtmp2, FALSE);
+        /*[if either dies, this reports mtmp has died; is that correct?]*/
+        if (mstatus & (M_ATTK_AGR_DIED | M_ATTK_DEF_DIED))
+            return MMOVE_DIED;
+        if (mstatus & M_ATTK_HIT)
+            return MMOVE_MOVED;
+        return MMOVE_DONE;
+    }
+
+    if (!m_in_out_region(mtmp, nix, niy))
+        return MMOVE_DONE;
+
+    if ((info & ALLOW_ROCK) && m_can_break_boulder(mtmp)) {
+        (void) m_break_boulder(mtmp, nix, niy);
+        return MMOVE_DONE;
+    }
+
+    m_postmove_effect(mtmp);
+
+    /* move a normal monster; for a long worm, remove_monster() and
+       place_monster() only manipulate the head; they leave tail as-is */
+    remove_monster(omx, omy);
+    place_monster(mtmp, nix, niy);
+    decision_note(mtmp, closed_door(nix, niy) ? "pass door" : "move", NULL);
+    msg_mon_movement(mtmp, omx, omy);
+    /* for a long worm, insert a new segment to reconnect the head
+       with the tail; worm_move() keeps the end of the tail if worm
+       is scheduled to grow, removes that for move-without-growing */
+    if (mtmp->wormno)
+        worm_move(mtmp);
+
+    maybe_unhide_at(mtmp->mx, mtmp->my);
+
+    mon_track_add(mtmp, omx, omy);
+
+    return postmov(mtmp, mtmp->data, omx, omy, MMOVE_MOVED,
+                   seenflgs, can_tunnel, can_unlock, can_open);
+}
+
+#ifdef DECISION_CHARACTERS
+int
+decision_move(struct monst *mon, coord pos, long info)
+{
+    long flags = mon_allowflags(mon);
+    unsigned seen = (canseemon(mon) ? 1 : 0) | (canspotmon(mon) ? 2 : 0);
+
+    return resolve_step(mon, pos.x, pos.y, info, seen, !!(flags & ALLOW_DIG),
+                        !!(flags & UNLOCKDOOR), !!(flags & OPENDOOR));
+}
+#endif
+
 /* Handles the movement of a standard monster.
  * Return values:
  * 0: did not move, but can still attack and do other stuff;
@@ -1730,10 +1840,6 @@ m_move(struct monst *mtmp, int after)
     struct mfndposdata mfp;
     long flag;
     coordxy omx = mtmp->mx, omy = mtmp->my;
-#ifdef DECISION_CHARACTERS
-    int decision_fd = -1;
-    unsigned considered = 0;
-#endif
 
     if (mtmp->mtrapped) {
         int i = mintrap(mtmp, NO_TRAP_FLAGS);
@@ -1926,9 +2032,6 @@ m_move(struct monst *mtmp, int after)
         int jcnt, cnt;
         int ndist, nidist;
         coord *mtrk;
-#ifdef DECISION_CHARACTERS
-        boolean decision_eligible;
-#endif
 
         cnt = mfndpos(mtmp, &mfp, flag);
         if (cnt == 0 && !is_unicorn(mtmp->data)) {
@@ -1952,10 +2055,6 @@ m_move(struct monst *mtmp, int after)
         }
         better_with_displacing =
             should_displace(mtmp, &mfp, ggx, ggy);
-#ifdef DECISION_CHARACTERS
-        decision_eligible = appr != 0 && !after
-                            && decision_characters_eligible(mtmp, ggx, ggy);
-#endif
         for (i = 0; i < cnt; i++) {
             if (avoid && (mfp.info[i] & NOTONL))
                 continue;
@@ -1976,10 +2075,6 @@ m_move(struct monst *mtmp, int after)
                             goto nxti;
             }
 
-#ifdef DECISION_CHARACTERS
-            if (decision_eligible)
-                considered |= 1U << i;
-#endif
             nearer = ((ndist = dist2(nx, ny, ggx, ggy)) < nidist);
 
             if ((appr == 1 && nearer) || (appr == -1 && !nearer)
@@ -2000,112 +2095,9 @@ m_move(struct monst *mtmp, int after)
     }
 
     if (mmoved != MMOVE_NOTHING) {
-        if (mmoved == MMOVE_MOVED && !u_at(nix, niy) && itsstuck(mtmp))
-            return MMOVE_DONE;
-
-        if (mmoved == MMOVE_MOVED && m_digweapon_check(mtmp, nix, niy))
-            return MMOVE_DONE;
-
-        /* If ALLOW_U is set, either it's trying to attack you, or it
-         * thinks it is.  In either case, attack this spot in preference to
-         * all others.
-         */
-        /* Actually, this whole section of code doesn't work as you'd expect.
-         * Most attacks are handled in dochug().  It calls distfleeck(), which
-         * among other things sets nearby if the monster is near you--and if
-         * nearby is set, we never call m_move unless it is a special case
-         * (confused, stun, etc.)  The effect is that this ALLOW_U (and
-         * mfndpos) has no effect for normal attacks, though it lets a
-         * confused monster attack you by accident.
-         */
         assert(IndexOk(chi, mfp.info));
-        if (mfp.info[chi] & ALLOW_U) {
-            nix = mtmp->mux;
-            niy = mtmp->muy;
-        }
-        if (u_at(nix, niy)) {
-            mtmp->mux = u.ux;
-            mtmp->muy = u.uy;
-            return MMOVE_NOTHING;
-        }
-        /* The monster may attack another based on 1 of 2 conditions:
-         * 1 - It may be confused.
-         * 2 - It may mistake the monster for your (displaced) image.
-         * Pets get taken care of above and shouldn't reach this code.
-         * Conflict gets handled even farther away (movemon()).
-         */
-        if ((mfp.info[chi] & ALLOW_M) != 0
-            || (nix == mtmp->mux && niy == mtmp->muy))
-            return m_move_aggress(mtmp, nix, niy);
-
-        if ((mfp.info[chi] & ALLOW_MDISP) != 0) {
-            struct monst *mtmp2;
-            int mstatus;
-
-            mtmp2 = m_at(nix, niy); /* ALLOW_MDISP implies m_at() is !Null */
-            mstatus = mdisplacem(mtmp, mtmp2, FALSE);
-            /*[if either dies, this reports mtmp has died; is that correct?]*/
-            if (mstatus & (M_ATTK_AGR_DIED | M_ATTK_DEF_DIED))
-                return MMOVE_DIED;
-            if (mstatus & M_ATTK_HIT)
-                return MMOVE_MOVED;
-            return MMOVE_DONE;
-        }
-
-#ifdef DECISION_CHARACTERS
-        /* Ordinary steps can share these native move guards because they
-           do not dig, interact with occupants, or move boulders. The
-           region resolver may still veto the selected destination. */
-        if (considered) {
-            int selected = decision_characters_step(mtmp, &mfp, considered,
-                                                     chi, &decision_fd);
-
-            if (selected >= 0) {
-                coordxy x = mfp.poss[selected].x, y = mfp.poss[selected].y;
-
-                if (m_in_out_region(mtmp, x, y)) {
-                    chi = selected;
-                    nix = x;
-                    niy = y;
-                } else {
-                    decision_characters_outcome(decision_fd, FALSE);
-                    decision_fd = -1;
-                    /* Vetoes happen before the region callbacks take effect. */
-                    if (selected == chi)
-                        return MMOVE_DONE;
-                }
-            }
-        }
-        if (decision_fd < 0 && !m_in_out_region(mtmp, nix, niy))
-#else
-        if (!m_in_out_region(mtmp, nix, niy))
-#endif
-            return MMOVE_DONE;
-
-        if ((mfp.info[chi] & ALLOW_ROCK) && m_can_break_boulder(mtmp)) {
-            (void) m_break_boulder(mtmp, nix, niy);
-            return MMOVE_DONE;
-        }
-
-        m_postmove_effect(mtmp);
-
-        /* move a normal monster; for a long worm, remove_monster() and
-           place_monster() only manipulate the head; they leave tail as-is */
-        remove_monster(omx, omy);
-        place_monster(mtmp, nix, niy);
-#ifdef DECISION_CHARACTERS
-        decision_characters_outcome(decision_fd, TRUE);
-#endif
-        msg_mon_movement(mtmp, omx, omy);
-        /* for a long worm, insert a new segment to reconnect the head
-           with the tail; worm_move() keeps the end of the tail if worm
-           is scheduled to grow, removes that for move-without-growing */
-        if (mtmp->wormno)
-            worm_move(mtmp);
-
-        maybe_unhide_at(mtmp->mx, mtmp->my);
-
-        mon_track_add(mtmp, omx, omy);
+        return resolve_step(mtmp, nix, niy, mfp.info[chi], seenflgs,
+                            can_tunnel, can_unlock, can_open);
     } else {
         if (is_unicorn(ptr) && rn2(2) && !tele_restrict(mtmp)) {
             (void) rloc(mtmp, RLOC_MSG);
@@ -2138,6 +2130,7 @@ m_move_aggress(struct monst *mtmp, coordxy x, coordxy y)
 
     mtmp2 = m_at(x, y);
     if (mtmp2) {
+        decision_note(mtmp, "attack monster", NULL);
         gb.bhitpos.x = x, gb.bhitpos.y = y;
         gn.notonhead = (x != mtmp2->mx || y != mtmp2->my);
         mstatus = mattackm(mtmp, mtmp2);

@@ -4,6 +4,7 @@
 /* NetHack may be freely redistributed.  See license for details. */
 
 #include "hack.h"
+#include "decision.h"
 
 staticfn int monmulti(struct monst *, struct obj *, struct obj *);
 staticfn void monshoot(struct monst *, struct obj *, struct obj *);
@@ -1173,6 +1174,12 @@ m_useup(struct monst *mon, struct obj *obj)
 void
 thrwmu(struct monst *mtmp)
 {
+    throw_at_hero(mtmp, NULL);
+}
+
+void
+throw_at_hero(struct monst *mtmp, struct obj *chosen)
+{
     struct obj *otmp, *mwep;
     coordxy x, y;
     const char *onm;
@@ -1181,7 +1188,7 @@ thrwmu(struct monst *mtmp)
     boolean always_toss = FALSE;
 
     /* Rearranged beginning so monsters can use polearms not in a line */
-    if (mtmp->weapon_check == NEED_WEAPON || !MON_WEP(mtmp)) {
+    if (!chosen && (mtmp->weapon_check == NEED_WEAPON || !MON_WEP(mtmp))) {
         mtmp->weapon_check = NEED_RANGED_WEAPON;
         /* mon_wield_item resets weapon_check as appropriate */
         if (mon_wield_item(mtmp) != 0)
@@ -1189,8 +1196,9 @@ thrwmu(struct monst *mtmp)
     }
 
     /* Pick a weapon */
-    otmp = select_rwep(mtmp);
-    if (!otmp)
+    otmp = select_rwep_from(mtmp, chosen);
+    if (!otmp || (chosen && gp.propellor != &hands_obj
+                   && gp.propellor != MON_WEP(mtmp)))
         return;
 
     if (is_pole(otmp)) {
@@ -1225,6 +1233,7 @@ thrwmu(struct monst *mtmp)
                   obj_is_pname(otmp) ? the(onm) : an(onm));
         }
 
+        decision_note(mtmp, "polearm attack", otmp);
         dam = dmgval(otmp, &gy.youmonst);
         hitv = 3 - distmin(u.ux, u.uy, mtmp->mx, mtmp->my);
         if (hitv < -4)
@@ -1259,6 +1268,7 @@ thrwmu(struct monst *mtmp)
         return;
 
     mwep = MON_WEP(mtmp); /* wielded weapon */
+    decision_note(mtmp, "shoot or throw", otmp);
     monshoot(mtmp, otmp, mwep); /* multishot shooting or throwing */
     nomul(0);
 }

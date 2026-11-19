@@ -40,7 +40,7 @@ if [[ -z "$decision_api_key" || ${NETHACK_DECISIONS:-} == off ]]; then
     exec "$executable" "$@"
 fi
 if ! command -v node >/dev/null 2>&1; then
-    printf 'Node.js is unavailable. Playing with native monster movement.\n' >&2
+    printf 'Node.js is unavailable. Playing with native monster behavior.\n' >&2
     exec "$executable" "$@"
 fi
 
@@ -78,7 +78,7 @@ done
 if [[ -f "$socket_dir/ready" ]]; then
     export NETHACK_DECISION_SOCKET="$socket_dir/s"
 else
-    printf 'The Decisions broker could not start. Playing with native monster movement.\n' >&2
+    printf 'The Decisions broker could not start. Playing with native monster behavior.\n' >&2
     cat "$socket_dir/error" >&2
     cleanup
     trap - EXIT HUP TERM

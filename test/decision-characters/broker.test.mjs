@@ -6,10 +6,11 @@ import { join } from "node:path";
 import test from "node:test";
 import { setTimeout as delay } from "node:timers/promises";
 import { createDecisionBroker } from "../../decision-characters/broker.mjs";
+import { monsterPrompts, overallPrompt } from "../../decision-characters/prompts.mjs";
 
 function encounter(overrides = {}) {
     const step = {
-        target_distance: 2,
+        action: "move", x: 5, y: 3, target_distance: 2,
         closes: true,
         known_hazard: false,
         nearby_allies: 0,
@@ -19,17 +20,20 @@ function encounter(overrides = {}) {
         flank: false,
     };
     return {
-        id: "1", turn: 8, level: 3, monster: 36,
-        species: "goblin", health: "wounded", native: "n",
+        version: 2, id: "1", turn: 8, level: 3, monster: 36,
+        species: "goblin", health: "wounded", hp: 3, max_hp: 8, x: 4, y: 3, target: { x: 7, y: 4 },
+        status: { blind: false, confused: false, stunned: false, fleeing: false, trapped: false },
+        characters: [], floor: [], history: [], inventory: [],
         allies: 1, opponents: 1, ranged: false,
-        steps: [{ ...step, id: "n" }, { ...step, id: "w", nearby_allies: 1 }],
+        actions: [{ ...step, id: "n" }, { ...step, id: "w", nearby_allies: 1 },
+            { id: "native", action: "follow usual NetHack tactics" }, { id: "wait", action: "hold position" }],
         ...overrides,
     };
 }
 
 function choice(value = "w") {
     return Response.json({
-        answers: [{ name: "step", type: "choice", choice: value }],
+        answers: [{ name: "action", type: "choice", choice: value }],
         usage: { input_tokens: 99 },
     });
 }
@@ -78,25 +82,41 @@ test("uses the Decisions choice API and records the engine's applied outcome", a
         assert.equal(options.redirect, "error");
         const { model, input, questions } = JSON.parse(options.body);
         assert.equal(model, "gpt-6-luna");
-        assert.deepEqual(questions[0].choices.map((step) => step.value), ["n", "w"]);
+        assert.deepEqual(questions[0].choices.map((step) => step.value), ["n", "w", "native", "wait"]);
         assert.equal(questions[0].type, "choice");
-        assert.match(questions[0].instructions, /nearby allied support/);
         const [evidence] = input[0].content;
         assert.equal(evidence.type, "input_json");
         assert.equal(evidence.data.species, "goblin");
-        assert.equal(evidence.data.steps[1].nearby_allies, 1);
-        assert.deepEqual(Object.keys(evidence.data), ["species", "health", "allies", "opponents", "ranged", "steps"]);
-        assert.equal(evidence.data.steps[1].unexpected, undefined);
+        assert.match(questions[0].choices[1].description, /near allies 1/);
+        assert.equal(evidence.data.hp, 3);
+        assert.deepEqual(evidence.data.target, { x: 7, y: 4 });
+        assert.deepEqual(evidence.data.history, []);
+        assert.equal(evidence.data.monster, undefined);
+        assert.equal(evidence.data.actions, undefined);
         return choice();
     });
     assert.equal((await stat(broker.socketPath)).mode & 0o777, 0o600);
     const first = encounter();
-    first.steps[1].unexpected = "freeform text";
+    first.actions[1].unexpected = "freeform text";
     assert.equal(await exchange(broker, first), "1 8 3 36 w\n");
     assert.equal(await exchange(broker, encounter({ id: "2" }), "blocked"), "2 8 3 36 w\n");
     assert.equal(calls, 2);
     assert.deepEqual(events.map(({ outcome, inputTokens, selected }) => [outcome, inputTokens, selected]),
         [["applied", 99, "w"], ["blocked", 99, "w"]]);
+});
+
+test("sends the shared instructions followed by the selected monster's configured prompt", async t => {
+    const instructions = [];
+    const { broker } = await brokerFixture(t, (_url, options) => {
+        instructions.push(JSON.parse(options.body).questions[0].instructions);
+        return choice();
+    });
+    let id = 0;
+    for (const [species, prompt] of monsterPrompts) {
+        const request = encounter({ species, id: String(++id) });
+        assert.equal(await exchange(broker, request), `${id} 8 3 36 w\n`);
+        assert.equal(instructions.shift(), `${overallPrompt} ${prompt}`, species);
+    }
 });
 
 test("keyless mode creates no socket", async () => {
@@ -125,13 +145,13 @@ test("disable, replay checks, and the session cap avoid extra calls", async (t) 
 test("invalid steps, unknown answers, refusals, and malformed responses fall back", async (t) => {
     const responses = [
         choice("e"),
-        Response.json({ answers: [{ name: "step", type: "refusal" }] }),
+        Response.json({ answers: [{ name: "action", type: "refusal" }] }),
         Response.json({ answers: [{ type: "refusal" }] }),
         new Response("<not json>"),
         Response.json({ answers: [null, { name: "bogus", type: "choice", choice: "w" }] }),
     ];
     const { broker, events } = await brokerFixture(t, () => responses.shift());
-    assert.equal(await exchange(broker, encounter({ native: "e" })), "");
+    assert.equal(await exchange(broker, encounter({ actions: [{ id: "bogus", action: "bogus" }] })), "");
     for (let id = 1; id <= 5; id++) {
         assert.equal(await exchange(broker, encounter({ id: String(id) })), `${id} 8 3 36 -\n`);
     }
@@ -159,6 +179,21 @@ test("authentication and rate-limit failures back off across sessions", async (t
     }
 });
 
+test("the configured wait also extends the broker's HTTP deadline", async t => {
+    const previous = process.env.NETHACK_DECISION_TIMEOUT_MS;
+    process.env.NETHACK_DECISION_TIMEOUT_MS = "1500";
+    t.after(() => {
+        if (previous === undefined) delete process.env.NETHACK_DECISION_TIMEOUT_MS;
+        else process.env.NETHACK_DECISION_TIMEOUT_MS = previous;
+    });
+    const { broker, events } = await brokerFixture(t, async () => {
+        await delay(550);
+        return choice();
+    });
+    assert.equal(await exchange(broker, encounter()), "1 8 3 36 w\n");
+    assert.equal(events[0].outcome, "applied");
+});
+
 test("a late answer is discarded within the deadline and cannot affect another move", async (t) => {
     let finish;
     let calls = 0;
@@ -173,4 +208,28 @@ test("a late answer is discarded within the deadline and cannot affect another m
     await delay(5);
     assert.equal(await exchange(broker, encounter({ id: "2" })), "2 8 3 36 w\n");
     assert.deepEqual(events.map(({ selected }) => selected), [null, "w"]);
+});
+
+
+test("projects a mixed action menu and the actor's observations into the API prompt", async t => {
+    const potion = { class: "potion", type: "healing" };
+    const r = encounter();
+    r.history.push({ turn: 7, level: 3, action: "move", x: 4, y: 3, hp: 4 });
+    r.characters.push({ species: "hill orc", x: 3, y: 2, relation: "ally" });
+    r.inventory.push({ id: 7, item: potion, quantity: 1, equipped: false });
+    r.floor.push({ x: 4, y: 3, item: { class: "weapon", type: "dagger" } });
+    r.actions.push({ id: "defense_7", action: "use defensively", item: potion });
+    const { broker } = await brokerFixture(t, (_url, { body }) => {
+        const { input, questions: [q] } = JSON.parse(body);
+        const evidence = input[0].content[0].data;
+        for (const key of ["history", "inventory", "floor", "characters"])
+            assert.deepEqual(evidence[key], r[key]);
+        assert.equal(q.name, "action");
+        assert.deepEqual(q.choices.map(c => c.value), r.actions.map(a => a.id));
+        assert.match(q.choices.at(-1).description, /healing/);
+        return choice("defense_7");
+    });
+    assert.equal(await exchange(broker, r), "1 8 3 36 defense_7\n");
+    r.actions.push(r.actions.at(-1));
+    assert.equal(await exchange(broker, r), "");
 });

@@ -1,4 +1,6 @@
-# Decision-characters for terminal NetHack
+# Original implementation plan for terminal NetHack
+
+This plan records the first movement-only implementation. The game now supports turn-level action selection, perception, and per-monster history for 281 enabled forms. [Current design and extension guide](doc/decision-characters.md)
 
 Build a source fork of NetHack 5.0.0 that runs directly in the player’s terminal on macOS or Linux. Ten existing monster species get a new tactical decision during ordinary hostile movement: given the steps the engine permits, which square should this monster choose? That decision can change whether the player gets surrounded, whether a wounded monster closes the distance, or whether an archer keeps a firing lane. NetHack still resolves every action and advances the clock.
 

@@ -4,6 +4,7 @@
 /* NetHack may be freely redistributed.  See license for details. */
 
 #include "hack.h"
+#include "decision.h"
 #include "mfndpos.h"
 
 staticfn void pet_sanity_check(struct monst *, const char *);
@@ -1843,8 +1844,8 @@ mpickgold(struct monst *mtmp)
 }
 
 /* monster picks up one item stack from the map location they are at */
-boolean
-mpickstuff(struct monst *mtmp)
+static boolean
+pick_floor_item(struct monst *mtmp, struct obj *only, boolean preview)
 {
     struct obj *otmp, *otmp2, *otmp3;
     int carryamt = 0;
@@ -1861,8 +1862,9 @@ mpickstuff(struct monst *mtmp)
     if (!could_reach_item(mtmp, mtmp->mx, mtmp->my))
         return FALSE;
 
-    for (otmp = svl.level.objects[mtmp->mx][mtmp->my]; otmp; otmp = otmp2) {
-        otmp2 = otmp->nexthere;
+    for (otmp = only ? only : svl.level.objects[mtmp->mx][mtmp->my];
+         otmp; otmp = otmp2) {
+        otmp2 = only ? NULL : otmp->nexthere;
 
         /* avoid special items; once hero picks them up, they'll cease
            being special, becoming eligible for normal pickup */
@@ -1883,6 +1885,9 @@ mpickstuff(struct monst *mtmp)
             carryamt = can_carry(mtmp, otmp);
             if (carryamt == 0)
                 continue;
+            if (preview)
+                return TRUE;
+            decision_note(mtmp, "pick up", otmp);
             /* handle cases where the critter can only get some */
             otmp3 = otmp;
             if (carryamt != otmp->quan) {
@@ -1908,6 +1913,20 @@ mpickstuff(struct monst *mtmp)
     }
     return FALSE;
 }
+
+boolean
+mpickstuff(struct monst *mon)
+{
+    return pick_floor_item(mon, NULL, FALSE);
+}
+
+#ifdef DECISION_CHARACTERS
+boolean
+decision_pickup(struct monst *mon, struct obj *obj, boolean preview)
+{
+    return pick_floor_item(mon, obj, preview);
+}
+#endif
 
 int
 curr_mon_load(struct monst *mtmp)

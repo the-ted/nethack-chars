@@ -4,6 +4,7 @@
 /* NetHack may be freely redistributed.  See license for details. */
 
 #include "hack.h"
+#include "decision.h"
 #include "artifact.h"
 
 static NEARDATA struct obj *mon_currwep = (struct obj *) 0;
@@ -487,11 +488,13 @@ mtrapped_in_pit(struct monst *mtmp)
  *              monster which it attacks by mistake, the caller had better
  *              take care of it...
  */
-int
-mattacku(struct monst *mtmp)
+static int
+attack_hero(struct monst *mtmp, boolean native_items, struct obj *offensive, int use,
+            struct obj *missile)
 {
     struct attack *mattk, alt_attk;
     int i, j = 0, tmp, sum[NATTK];
+    unsigned missile_id = missile ? missile->o_id : 0;
     struct permonst *mdat = mtmp->data;
     /*
      * ranged: Is it near you?  Affects your actions.
@@ -755,13 +758,19 @@ mattacku(struct monst *mtmp)
     }
 
     /* Unlike defensive stuff, don't let them use item _and_ attack. */
-    if (find_offensive(mtmp)) {
+    if (offensive) {
+        gm.m.offensive = offensive;
+        gm.m.has_offense = use;
+    }
+    if (offensive || (native_items && find_offensive(mtmp))) {
         int offended = use_offensive(mtmp);
 
         if (offended != 0)
             return (offended == 1);
     }
 
+    if (!range2)
+        decision_note(mtmp, "melee attack", MON_WEP(mtmp));
     gs.skipdrin = FALSE; /* [see mattackm(mhitm.c)] */
     firstfoundyou = foundyou;
 
@@ -784,6 +793,10 @@ mattacku(struct monst *mtmp)
         }
         mon_currwep = (struct obj *) 0;
         mattk = getmattk(mtmp, &gy.youmonst, i, sum, &alt_attk);
+        /* A ranged decision selects either innate attacks or a missile stack. */
+        if (!native_items && range2 && !offensive
+            && ((mattk->aatyp == AT_WEAP) != (missile_id != 0)))
+            continue;
         if ((u.uswallow && mattk->aatyp != AT_ENGL)
             || (skipnonmagc && mattk->aatyp != AT_MAGC)
             || (gs.skipdrin && mattk->aatyp == AT_TENT
@@ -832,8 +845,11 @@ mattacku(struct monst *mtmp)
         case AT_GAZE: /* can affect you either ranged or not */
             /* Medusa gaze already operated through m_respond in
                dochug(); don't gaze more than once per round. */
-            if (mdat != &mons[PM_MEDUSA])
+            if (mdat != &mons[PM_MEDUSA]) {
+                if (range2)
+                    decision_note(mtmp, "attempt gaze", NULL);
                 sum[i] = gazemu(mtmp, mattk);
+            }
             break;
 
         case AT_EXPL: /* automatic hit if next to, and aimed at you */
@@ -871,19 +887,30 @@ mattacku(struct monst *mtmp)
             }
             break;
         case AT_BREA:
-            if (range2)
+            if (range2) {
+                decision_note(mtmp, "attempt breath", NULL);
                 sum[i] = breamu(mtmp, mattk);
+            }
             /* Note: breamu takes care of displacement */
             break;
         case AT_SPIT:
-            if (range2)
+            if (range2) {
+                decision_note(mtmp, "attempt spit", NULL);
                 sum[i] = spitmu(mtmp, mattk);
+            }
             /* Note: spitmu takes care of displacement */
             break;
         case AT_WEAP:
             if (range2) {
-                if (!Is_rogue_level(&u.uz))
-                    thrwmu(mtmp);
+                /* A previous attack in this set may have spent the last
+                   missile. Only fire again from the chosen carried stack. */
+                if (!Is_rogue_level(&u.uz)) {
+                    if (!missile_id)
+                        thrwmu(mtmp);
+                    else if ((missile = o_on(missile_id, mtmp->minvent)) != NULL
+                             && missile->where == OBJ_MINVENT)
+                        throw_at_hero(mtmp, missile);
+                }
             } else {
                 int hittmp = 0;
 
@@ -891,7 +918,7 @@ mattacku(struct monst *mtmp)
                  * wields when 2 spaces away, but it can be
                  * teleported or whatever....
                  */
-                if (mtmp->weapon_check == NEED_WEAPON || !MON_WEP(mtmp)) {
+                if (native_items && (mtmp->weapon_check == NEED_WEAPON || !MON_WEP(mtmp))) {
                     mtmp->weapon_check = NEED_HTH_WEAPON;
                     /* mon_wield_item resets weapon_check as appropriate */
                     if (mon_wield_item(mtmp) != 0)
@@ -2640,3 +2667,17 @@ cloneu(void)
 #undef ld
 
 /*mhitu.c*/
+
+int
+mattacku(struct monst *mon)
+{
+    return attack_hero(mon, TRUE, NULL, 0, NULL);
+}
+
+#ifdef DECISION_CHARACTERS
+int
+decision_attack(struct monst *mon, struct obj *item, int use, struct obj *missile)
+{
+    return attack_hero(mon, FALSE, item, use, missile);
+}
+#endif

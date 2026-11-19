@@ -14,7 +14,7 @@
 #include <unistd.h>
 
 #define DECISION_TIMEOUT_MS 500
-#define DECISION_PROTOCOL_SIZE 4096
+#define DECISION_PROTOCOL_SIZE 32768
 #define DECISION_SENSE_RANGE 6
 #ifdef MSG_NOSIGNAL
 #define DECISION_SEND_FLAGS MSG_NOSIGNAL
@@ -28,33 +28,37 @@ static boolean attempted;
 static unsigned long request_id;
 
 struct decision_step {
-    const char *id;
     int target_distance, nearby_allies;
     boolean closes, known_hazard, cover, firing_lane, narrow, flank;
 };
 
 static const char *
-decision_species(const struct monst *mon)
+configured_form(int pm)
 {
-    switch (monsndx(mon->data)) {
-    case PM_GOBLIN:        return "goblin";
-    case PM_HOBGOBLIN:     return "hobgoblin";
-    case PM_HILL_ORC:      return "hill orc";
-    case PM_MORDOR_ORC:    return "mordor orc";
-    case PM_URUK_HAI:      return "uruk-hai";
-    case PM_ORC_CAPTAIN:   return "orc-captain";
-    case PM_KOBOLD:        return "kobold";
-    case PM_LARGE_KOBOLD:  return "large kobold";
-    case PM_KOBOLD_LEADER: return "kobold leader";
-    case PM_GNOME:         return "gnome";
+    switch (pm) {
+#define DECISION_OVERALL(text)
+#define DECISION_SPECIES(pm, name, tactics) case pm: return name;
+#include "decision_prompts.conf"
+#undef DECISION_OVERALL
+#undef DECISION_SPECIES
     default:               return (const char *) 0;
     }
+}
+
+const char *
+decision_species(struct monst *mon)
+{
+    /* Role state and a natural shapechanger's identity survive a form change. */
+    if (mon->iswiz || mon->m_id == svq.quest_status.leader_m_id
+        || (mon->cham != NON_PM && !configured_form(mon->cham)))
+        return NULL;
+    return configured_form(monsndx(mon->data));
 }
 
 void
 decision_characters_new_action(void)
 {
-    /* Round robin over the eligible movement opportunities seen last action.
+    /* Round robin over the eligible encounter turns seen last action.
        If the pack shrinks, the next action uses the new opportunity count. */
     if (opportunities)
         next_opportunity = (next_opportunity + 1) % opportunities;
@@ -65,30 +69,26 @@ decision_characters_new_action(void)
 }
 
 boolean
-decision_characters_eligible(struct monst *mon, coordxy target_x,
-                             coordxy target_y)
+decision_opportunity(struct monst *mon)
 {
-    const char *socket_path = getenv("NETHACK_DECISION_SOCKET");
+    const char *path = getenv("NETHACK_DECISION_SOCKET");
 
-    return (boolean) (socket_path && *socket_path == '/' && !gm.multi
-                      && gc.command_count <= 1
-                      && !svc.context.run && !svc.context.travel
-                      && !go.occupation && !Unaware && !u.uswallow && !Conflict
-                      && !helpless(mon) && mon->mcansee && !mon->mtrapped
-                      && !mon->mpeaceful && !mon->mtame && !mon->mflee
-                      && !mon->mconf && !mon->mstun && !mon->wormno
-                      && !mon->isshk && !mon->isgd && !mon->ispriest
-                      && !mon->isminion && mon != u.ustuck
-                      && !u.uundetected && U_AP_TYPE == M_AP_NOTHING
-                      && target_x == mon->mux && target_y == mon->muy
-                      && isok(target_x, target_y) && decision_species(mon)
-                      && dist2(mon->mx, mon->my, target_x, target_y)
-                             <= DECISION_SENSE_RANGE * DECISION_SENSE_RANGE
-                      && !monnear(mon, target_x, target_y)
-                      && !monnear(mon, u.ux, u.uy)
-                      && m_canseeu(mon) && m_cansee(mon, target_x, target_y)
-                      && (levl[target_x][target_y].lit
-                          || !levl[mon->mx][mon->my].lit));
+    if (!path || path[0] != '/' || gm.multi || gc.command_count > 1
+        || svc.context.run || svc.context.travel || go.occupation || Unaware
+        || u.uswallow || Conflict || helpless(mon)
+        || mon->meating || mon->mpeaceful || mon->mtame
+        || mon->wormno
+        || mon->isshk || mon->isgd || mon->ispriest || mon->isminion
+        || mon == u.ustuck || u.uundetected || U_AP_TYPE != M_AP_NOTHING
+        || !decision_species(mon) || !isok(mon->mux, mon->muy)
+        || dist2(mon->mx, mon->my, mon->mux, mon->muy) > 36
+        || (mon->mcansee && (!m_canseeu(mon) || !m_cansee(mon, mon->mux, mon->muy)
+            || (!levl[mon->mux][mon->muy].lit && levl[mon->mx][mon->my].lit))))
+        return FALSE;
+    if (opportunities++ != next_opportunity || attempted)
+        return FALSE;
+    attempted = TRUE;
+    return TRUE;
 }
 
 static boolean
@@ -100,32 +100,10 @@ ordinary_ground(coordxy x, coordxy y)
                       || (typ == DOOR && !closed_door(x, y)));
 }
 
-static boolean
-ordinary_step(struct monst *mon, const struct mfndposdata *mfp, int i)
+boolean
+decision_perceives(struct monst *mon, struct monst *other)
 {
-    coordxy x = mfp->poss[i].x, y = mfp->poss[i].y;
-
-    return (boolean) (!(mfp->info[i] & (ALLOW_U | ALLOW_M | ALLOW_MDISP
-                                       | ALLOW_ROCK))
-                      && !u_at(x, y) && !MON_AT(x, y)
-                      && !(x == mon->mux && y == mon->muy)
-                      && ordinary_ground(x, y));
-}
-
-static const char *
-step_direction(struct monst *mon, coordxy x, coordxy y)
-{
-    static const char *const directions[3][3] = {
-        { "nw", "n", "ne" }, { "w", "", "e" }, { "sw", "s", "se" }
-    };
-
-    return directions[y - mon->my + 1][x - mon->mx + 1];
-}
-
-static boolean
-perceived_monster(struct monst *mon, struct monst *other)
-{
-    return (boolean) (mon != other && !DEADMONSTER(other)
+    return (boolean) (other && mon->mcansee && mon != other && !DEADMONSTER(other)
                       && !mon_offmap(other) && !other->mundetected
                       && M_AP_TYPE(other) == M_AP_NOTHING
                       && (!other->minvis || perceives(mon->data))
@@ -172,7 +150,6 @@ describe_step(struct monst *mon, coordxy x, coordxy y, boolean ranged)
     int dx = tx - x, dy = ty - y;
     boolean crowded_approach = FALSE;
 
-    step.id = step_direction(mon, x, y);
     step.target_distance = distmin(x, y, tx, ty);
     step.closes = (boolean) (step.target_distance
                             < distmin(mon->mx, mon->my, tx, ty));
@@ -184,7 +161,7 @@ describe_step(struct monst *mon, coordxy x, coordxy y, boolean ranged)
     step.narrow = narrow_step(mon, x, y);
     step.nearby_allies = 0;
     for (other = fmon; other; other = other->nmon) {
-        if (!decision_ally(mon, other) || !perceived_monster(mon, other))
+        if (!decision_ally(mon, other) || !decision_perceives(mon, other))
             continue;
         if (distmin(x, y, other->mx, other->my) <= 2)
             ++step.nearby_allies;
@@ -203,66 +180,242 @@ json_bool(boolean value)
     return value ? "true" : "false";
 }
 
+/* Per-process memory keeps existing saves and bones binary-compatible.
+   Entries follow monster IDs across levels and polymorph. */
+#define MEMORY_ACTORS 128
+#define MEMORY_ACTIONS 8
+#define VIEW_LIMIT 16
+struct past_action {
+    const char *verb;
+    int otyp, level, hp;
+    long turn;
+    coord pos;
+};
+struct actor_memory {
+    unsigned id;
+    unsigned long last;
+    struct past_action events[MEMORY_ACTIONS];
+    int count, next;
+};
+static struct actor_memory memories[MEMORY_ACTORS];
+static unsigned long memory_clock;
+
+static struct actor_memory *
+memory_for(unsigned id, boolean create)
+{
+    int i;
+    struct actor_memory *oldest = memories;
+    for (i = 0; i < MEMORY_ACTORS; ++i) {
+        if (memories[i].id == id)
+            return &memories[i];
+        if (memories[i].last < oldest->last)
+            oldest = &memories[i];
+    }
+    if (!create)
+        return NULL;
+    memset(oldest, 0, sizeof *oldest);
+    oldest->id = id;
+    return oldest;
+}
+
+void
+decision_note(struct monst *mon, const char *verb, struct obj *obj)
+{
+    struct actor_memory *memory;
+    struct past_action *e;
+    if (!decision_species(mon) || !getenv("NETHACK_DECISION_SOCKET")
+        || !mon->m_id || !isok(mon->mx, mon->my))
+        return;
+    memory = memory_for(mon->m_id, TRUE);
+    memory->last = ++memory_clock;
+    e = &memory->events[memory->next];
+    e->verb = verb;
+    e->otyp = obj ? obj->otyp : STRANGE_OBJECT;
+    e->level = ledger_no(&u.uz);
+    e->turn = svm.moves;
+    e->hp = mon->mhp;
+    e->pos.x = mon->mx;
+    e->pos.y = mon->my;
+    memory->next = (memory->next + 1) % MEMORY_ACTIONS;
+    if (memory->count < MEMORY_ACTIONS)
+        ++memory->count;
+}
+
+struct json_writer {
+    char *data;
+    size_t used, size;
+    boolean failed;
+};
+
+static void
+append(struct json_writer *w, const char *fmt, ...)
+{
+    va_list args;
+    int n;
+    if (w->failed)
+        return;
+    va_start(args, fmt);
+    n = vsnprintf(w->data + w->used, w->size - w->used, fmt, args);
+    va_end(args);
+    if (n < 0 || (size_t) n >= w->size - w->used)
+        w->failed = TRUE;
+    else
+        w->used += n;
+}
+
+static void
+quoted(struct json_writer *w, const char *s)
+{
+    append(w, "\"");
+    for (; *s; ++s) {
+        if (*s == '"' || *s == '\\')
+            append(w, "\\%c", *s);
+        else if ((unsigned char) *s < 32)
+            append(w, "\\u%04x", (unsigned char) *s);
+        else
+            append(w, "%c", *s);
+    }
+    append(w, "\"");
+}
+
+/* Only stable engine vocabulary. Never serialize user-assigned names,
+   scroll labels, messages, or player inventory. */
+static void
+item_description(struct json_writer *w, int otyp, const char *name)
+{
+    append(w, "{\"class\":");
+    quoted(w, def_oc_syms[objects[otyp].oc_class].explain);
+    append(w, ",\"type\":");
+    quoted(w, name);
+    append(w, "}");
+}
+
+static void
+item_type(struct json_writer *w, int otyp)
+{
+    item_description(w, otyp, OBJ_NAME(objects[otyp]));
+}
+
+static void
+write_history(struct json_writer *w, struct monst *mon)
+{
+    struct actor_memory *m = memory_for(mon->m_id, FALSE);
+    int i;
+    append(w, ",\"history\":[");
+    for (i = 0; m && i < m->count; ++i) {
+        const struct past_action *e = &m->events[
+            (m->next - m->count + i + MEMORY_ACTIONS) % MEMORY_ACTIONS];
+        append(w, "%s{\"action\":\"%s\",\"turn\":%ld,\"level\":%d,"
+               "\"x\":%d,\"y\":%d,\"hp\":%d", i ? "," : "", e->verb,
+               e->turn, e->level, e->pos.x, e->pos.y, e->hp);
+        if (e->otyp != STRANGE_OBJECT) {
+            append(w, ",\"item\":");
+            item_type(w, e->otyp);
+        }
+        append(w, "}");
+    }
+    append(w, "]");
+}
+
+static void
+write_scene(struct json_writer *w, struct monst *mon)
+{
+    int i, x, y, allies = 0, opponents = mon->mcansee ? 1 : 0;
+    struct obj *obj;
+    struct monst *other;
+    append(w, ",\"hp\":%d,\"max_hp\":%d,\"x\":%d,\"y\":%d,\"target\":",
+           mon->mhp, mon->mhpmax, mon->mx, mon->my);
+    if (mon->mcansee)
+        append(w, "{\"x\":%d,\"y\":%d}", mon->mux, mon->muy);
+    else
+        append(w, "null");
+    append(w, ",\"status\":{\"blind\":%s,\"confused\":%s,\"stunned\":%s,"
+           "\"fleeing\":%s,\"trapped\":%s},\"inventory\":[", json_bool(!mon->mcansee),
+           json_bool(mon->mconf), json_bool(mon->mstun), json_bool(mon->mflee),
+           json_bool(mon->mtrapped));
+    for (obj = mon->minvent, i = 0; obj && i < VIEW_LIMIT; obj = obj->nobj, ++i) {
+        append(w, "%s{\"item\":", i ? "," : "");
+        item_type(w, obj->otyp);
+        append(w, ",\"id\":%u,\"quantity\":%ld,\"equipped\":%s", obj->o_id,
+               obj->quan, json_bool(!!obj->owornmask));
+        if (obj->oclass == WAND_CLASS
+            || (obj->oclass == TOOL_CLASS && objects[obj->otyp].oc_charged))
+            append(w, ",\"charges\":%d", max(0, obj->spe));
+        append(w, "}");
+    }
+    append(w, "],\"characters\":[");
+    for (other = fmon, i = 0; other; other = other->nmon) {
+        boolean ally;
+        if (!decision_perceives(mon, other))
+            continue;
+        ally = decision_ally(mon, other);
+        allies += ally;
+        opponents += !!other->mtame;
+        if (i >= VIEW_LIMIT)
+            continue;
+        append(w, "%s{\"species\":", i++ ? "," : "");
+        quoted(w, pmname(other->data, NEUTRAL));
+        append(w, ",\"x\":%d,\"y\":%d,\"relation\":\"%s\"}",
+               other->mx, other->my, ally ? "ally" : other->mtame ? "opponent" : "other");
+    }
+    append(w, "],\"allies\":%d,\"opponents\":%d,\"floor\":[", allies, opponents);
+    i = 0;
+    for (x = max(1, mon->mx - DECISION_SENSE_RANGE);
+         x <= min(COLNO - 1, mon->mx + DECISION_SENSE_RANGE) && i < VIEW_LIMIT; ++x)
+        for (y = max(0, mon->my - DECISION_SENSE_RANGE);
+             y <= min(ROWNO - 1, mon->my + DECISION_SENSE_RANGE) && i < VIEW_LIMIT; ++y) {
+            const char *appearance;
+            obj = svl.level.objects[x][y];
+            if (!mon->mcansee || !obj || is_pool(x, y) || is_lava(x, y) || !m_cansee(mon, x, y)
+                || (!levl[x][y].lit && levl[mon->mx][mon->my].lit))
+                continue;
+            append(w, "%s{\"x\":%d,\"y\":%d,\"item\":", i++ ? "," : "", x, y);
+            /* A distant observer sees the appearance of a randomized item. */
+            appearance = OBJ_DESCR(objects[obj->otyp]);
+            item_description(w, obj->otyp, appearance ? appearance : OBJ_NAME(objects[obj->otyp]));
+            append(w, "}");
+        }
+    append(w, "]");
+}
+
 static int
 decision_request(char *buf, size_t size, struct monst *mon,
-                 const struct mfndposdata *mfp, unsigned choices, int native,
-                 const char *id, int level)
+                 struct decision_menu *menu, const char *id, int level)
 {
-    struct monst *other;
-    int allies = 0, opponents = 1, len, i, step_len;
-    const char *comma = "";
-    const char *health = 3 * mon->mhp <= mon->mhpmax ? "critical"
-                        : 2 * mon->mhp <= mon->mhpmax ? "wounded" : "healthy";
-    boolean ranged = FALSE;
+    struct json_writer w = { buf, 0, size, FALSE };
+    boolean ranged = menu->ranged;
+    int i;
 
-    for (other = fmon; other; other = other->nmon) {
-        if (!perceived_monster(mon, other))
-            continue;
-        if (decision_ally(mon, other))
-            ++allies;
-        else if (other->mtame)
-            ++opponents;
+    append(&w, "{\"version\":2,\"id\":\"%s\",\"turn\":%ld,\"level\":%d,"
+           "\"monster\":%u,\"species\":\"%s\",\"health\":\"%s\",\"ranged\":%s",
+           id, svm.moves, level, mon->m_id, decision_species(mon),
+           3 * mon->mhp <= mon->mhpmax ? "critical" :
+           2 * mon->mhp <= mon->mhpmax ? "wounded" : "healthy", json_bool(ranged));
+    write_scene(&w, mon);
+    write_history(&w, mon);
+    append(&w, ",\"actions\":[");
+    for (i = 0; i < menu->count; ++i) {
+        const struct decision_action *a = &menu->actions[i];
+        append(&w, "%s{\"id\":\"%s\",\"action\":\"%s\"", i ? "," : "", a->id, a->verb);
+        if (a->obj) {
+            append(&w, ",\"item\":");
+            item_type(&w, a->obj->otyp);
+        }
+        if (!a->obj && (a->kind == DC_DEFENSE || a->kind == DC_MISC))
+            append(&w, ",\"x\":%d,\"y\":%d", a->pos.x, a->pos.y);
+        if (a->kind == DC_MOVE) {
+            struct decision_step s = describe_step(mon, a->pos.x, a->pos.y, ranged);
+            append(&w, ",\"x\":%d,\"y\":%d,\"target_distance\":%d,"
+                   "\"closes\":%s,\"known_hazard\":%s,\"nearby_allies\":%d,"
+                   "\"cover\":%s,\"firing_lane\":%s,\"narrow\":%s,\"flank\":%s",
+                   a->pos.x, a->pos.y, s.target_distance, json_bool(s.closes),
+                   json_bool(s.known_hazard), s.nearby_allies, json_bool(s.cover),
+                   json_bool(s.firing_lane), json_bool(s.narrow), json_bool(s.flank));
+        }
+        append(&w, "}");
     }
-    if (monsndx(mon->data) == PM_URUK_HAI) {
-        struct obj *propellor = gp.propellor;
-
-        ranged = (boolean) (select_rwep(mon) != (struct obj *) 0);
-        gp.propellor = propellor;
-    }
-    len = snprintf(buf, size,
-                   "{\"id\":\"%s\",\"turn\":%ld,\"level\":%d,\"monster\":%u,"
-                   "\"species\":\"%s\",\"health\":\"%s\",\"native\":\"%s\","
-                   "\"allies\":%d,\"opponents\":%d,\"ranged\":%s,\"steps\":[",
-                   id, svm.moves, level, mon->m_id, decision_species(mon),
-                   health, step_direction(mon, mfp->poss[native].x,
-                                          mfp->poss[native].y),
-                   allies, opponents, json_bool(ranged));
-    if (len < 0 || (size_t) len >= size)
-        return -1;
-    for (i = 0; i < mfp->cnt; ++i) {
-        struct decision_step step;
-
-        if (!(choices & (1U << i)))
-            continue;
-        step = describe_step(mon, mfp->poss[i].x, mfp->poss[i].y, ranged);
-        step_len = snprintf(buf + len, size - (size_t) len,
-                            "%s{\"id\":\"%s\",\"target_distance\":%d,"
-                            "\"closes\":%s,\"known_hazard\":%s,\"nearby_allies\":%d,"
-                            "\"cover\":%s,\"firing_lane\":%s,\"narrow\":%s,\"flank\":%s}",
-                            comma, step.id, step.target_distance,
-                            json_bool(step.closes), json_bool(step.known_hazard),
-                            step.nearby_allies, json_bool(step.cover),
-                            json_bool(step.firing_lane), json_bool(step.narrow),
-                            json_bool(step.flank));
-        if (step_len < 0 || (size_t) step_len >= size - (size_t) len)
-            return -1;
-        len += step_len;
-        comma = ",";
-    }
-    if (size - (size_t) len < sizeof("]}\n"))
-        return -1;
-    memcpy(buf + len, "]}\n", sizeof("]}\n"));
-    return len + 3;
+    append(&w, "]}\n");
+    return w.failed ? -1 : (int) w.used;
 }
 
 /* Use one deadline across connect, send, and receive. All file descriptors are
@@ -368,34 +521,33 @@ connect_broker(const char *path, int64_t deadline)
     return fd;
 }
 
+/* Match brokerDeadline's accepted range. Bound the parse before converting. */
+static int
+decision_timeout_ms(void)
+{
+    const char *s = getenv("NETHACK_DECISION_TIMEOUT_MS");
+    int ms;
+    if (!s || *s < '1' || *s > '9' || strlen(s) > 5
+        || s[strspn(s, "0123456789")] != '\0')
+        return DECISION_TIMEOUT_MS;
+    ms = atoi(s);
+    return (ms >= 500 && ms <= 10000) ? ms : DECISION_TIMEOUT_MS;
+}
+
 int
-decision_characters_step(struct monst *mon, const struct mfndposdata *mfp,
-                         unsigned considered, int native, int *outcome_fd)
+decision_choose(struct monst *mon, struct decision_menu *menu, int *outcome_fd)
 {
     char request[DECISION_PROTOCOL_SIZE], reply[128], expected[128], id[32];
-    unsigned choices = 0;
-    int i, count = 0, level, length, fd;
+    int i, level, length, fd;
     int64_t start, deadline;
 
-    if (native < 0 || !ordinary_step(mon, mfp, native))
-        return -1;
-    for (i = 0; i < mfp->cnt; ++i) {
-        if ((considered & (1U << i)) && ordinary_step(mon, mfp, i)) {
-            choices |= 1U << i;
-            ++count;
-        }
-    }
-    if (count < 2 || opportunities++ != next_opportunity || attempted)
-        return -1;
-    attempted = TRUE;
     start = monotonic_ms();
     if (start < 0)
         return -1;
-    deadline = start + DECISION_TIMEOUT_MS;
+    deadline = start + decision_timeout_ms();
     level = ledger_no(&u.uz);
     (void) snprintf(id, sizeof(id), "%lu", ++request_id);
-    length = decision_request(request, sizeof(request), mon, mfp, choices,
-                              native, id, level);
+    length = decision_request(request, sizeof(request), mon, menu, id, level);
     if (length < 0)
         return -1;
     fd = connect_broker(getenv("NETHACK_DECISION_SOCKET"), deadline);
@@ -403,12 +555,10 @@ decision_characters_step(struct monst *mon, const struct mfndposdata *mfp,
         return -1;
     if (send_request(fd, request, (size_t) length, deadline)
         && receive_reply(fd, reply, sizeof(reply), deadline)) {
-        for (i = 0; i < mfp->cnt; ++i) {
-            if (!(choices & (1U << i)))
-                continue;
+        for (i = 0; i < menu->count; ++i) {
             (void) snprintf(expected, sizeof(expected), "%s %ld %d %u %s\n",
                             id, svm.moves, level, mon->m_id,
-                            step_direction(mon, mfp->poss[i].x, mfp->poss[i].y));
+                            menu->actions[i].id);
             if (!strcmp(reply, expected)) {
                 *outcome_fd = fd;
                 return i;

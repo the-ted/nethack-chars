@@ -515,7 +515,7 @@ HACK_H	= ../src/hack.h-t
 # all .c that are part of the main NetHack program and are not operating- or
 # windowing-system specific. Do not include date.c in this list.
 HACKCSRC = allmain.c alloc.c apply.c artifact.c attrib.c ball.c bones.c \
-	   botl.c calendar.c cmd.c coloratt.c dbridge.c decision.c decl.c detect.c \
+	   botl.c calendar.c cmd.c coloratt.c dbridge.c decision.c decision_actions.c decl.c detect.c \
 	   dig.c display.c dlb.c do.c do_name.c do_wear.c dog.c dogmove.c dokick.c dothrow.c \
 	   drawing.c dungeon.c earlyarg.c eat.c end.c engrave.c exper.c explode.c \
 	   extralev.c files.c fountain.c hack.c hacklib.c \
@@ -593,7 +593,7 @@ HOBJ = $(TARGETPFX)allmain.o $(TARGETPFX)alloc.o \
 	$(TARGETPFX)apply.o $(TARGETPFX)artifact.o $(TARGETPFX)attrib.o \
 	$(TARGETPFX)ball.o $(TARGETPFX)bones.o $(TARGETPFX)botl.o \
 	$(TARGETPFX)calendar.o $(TARGETPFX)cfgfiles.o $(TARGETPFX)cmd.o \
-	$(TARGETPFX)coloratt.o $(TARGETPFX)dbridge.o $(TARGETPFX)decision.o \
+	$(TARGETPFX)coloratt.o $(TARGETPFX)dbridge.o $(TARGETPFX)decision.o $(TARGETPFX)decision_actions.o \
 	$(TARGETPFX)decl.o $(TARGETPFX)detect.o $(TARGETPFX)dig.o \
 	$(TARGETPFX)display.o \
 	$(TARGETPFX)dlb.o $(TARGETPFX)do.o $(TARGETPFX)do_name.o \
@@ -1151,8 +1151,9 @@ $(TARGETPFX)cfgfiles.o: cfgfiles.c $(HACK_H)
 $(TARGETPFX)cmd.o: cmd.c $(HACK_H) ../include/func_tab.h
 $(TARGETPFX)coloratt.o: coloratt.c $(HACK_H)
 $(TARGETPFX)dbridge.o: dbridge.c $(HACK_H)
-$(TARGETPFX)decision.o: decision.c $(HACK_H) ../include/decision.h \
+$(TARGETPFX)decision.o: decision.c $(HACK_H) ../include/decision.h ../include/decision_prompts.conf \
 		../include/mfndpos.h
+$(TARGETPFX)decision_actions.o: decision_actions.c $(HACK_H) ../include/decision.h ../include/mfndpos.h
 $(TARGETPFX)decl.o: decl.c $(HACK_H)
 $(TARGETPFX)detect.o: detect.c $(HACK_H) ../include/artifact.h
 $(TARGETPFX)dig.o: dig.c $(HACK_H)
