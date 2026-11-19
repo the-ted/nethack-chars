@@ -56,7 +56,7 @@ function describeAction(a) {
     return parts.join(", ");
 }
 
-async function askDecision(request, { apiKey, fetchImpl, state, signal }) {
+async function askDecision(request, { apiKey, fetchImpl, state, signal, onRequest }) {
     const { evidence, ids } = request;
     const { actions, ...scene } = evidence;
     const body = {
@@ -69,12 +69,15 @@ async function askDecision(request, { apiKey, fetchImpl, state, signal }) {
             choices: actions.map(a => ({ value: a.id, description: describeAction(a) })),
         }],
     };
+    const payload = JSON.stringify(body);
+    onRequest?.({ type: "request", id: request.id, turn: scene.turn, level: scene.level,
+        monster: request.monster, species: scene.species, body });
     const response = await fetchImpl(endpoint, {
         method: "POST",
         headers: { authorization: `Bearer ${apiKey}`, "content-type": "application/json" },
         redirect: "error",
         signal,
-        body: JSON.stringify(body),
+        body: payload,
     });
     if (response.status === 401 || response.status === 403) {
         state.denied = true;
@@ -135,6 +138,7 @@ export async function createDecisionBroker({
     maxCalls = 500,
     deadlineMs = brokerDeadline(),
     onEvent = () => {},
+    onRequest,
 } = {}) {
     const key = apiKey?.trim();
     if (!key) {
@@ -176,7 +180,7 @@ export async function createDecisionBroker({
         state.inFlight++;
         try {
             const result = await beforeDeadline(askDecision(request, {
-                apiKey: key, fetchImpl, state, signal,
+                apiKey: key, fetchImpl, state, signal, onRequest,
             }), signal);
             return { ...result, requested: true };
         } catch {

@@ -60,9 +60,9 @@ trap 'exit 129' HUP
 trap 'exit 143' TERM
 
 log=/dev/null
-if [[ ${NETHACK_DECISION_LOG:-} == 1 ]]; then
-    log="$NETHACKDIR/decisions.log"
-fi
+case "${NETHACK_DECISION_LOG:-}" in
+    1|requests) log="$NETHACKDIR/decisions.log" ;;
+esac
 OPENAI_API_KEY="$decision_api_key" NODE_USE_ENV_PROXY="${NODE_USE_ENV_PROXY:-1}" \
     node "$root/decision-characters/serve.mjs" "$socket_dir/s" \
     </dev/null >>"$log" 2>"$socket_dir/error" &

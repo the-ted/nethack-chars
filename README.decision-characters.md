@@ -28,6 +28,7 @@ If you have saves from the former browser interface, each player’s files are u
 | `NETHACK_DECISIONS=off` | Play with native monster behavior even if a key is present. |
 | `NETHACK_DECISION_TIMEOUT_MS` | Total wait per eligible turn, in milliseconds. Default 500. Set a whole number from 500 to 10000 if your API calls need longer. |
 | `NETHACK_DECISION_LOG=1` | Append decision outcomes, latency, fallback reasons, and token usage to `decisions.log` in the playground. |
+| `NETHACK_DECISION_LOG=requests` | Include the outgoing Decisions API request body alongside each outcome in `decisions.log`. |
 | `NETHACK_ASSETS`, `NETHACK_BIN` | Override the installed game data directory or executable. |
 
 The broker runs for the lifetime of the game. It accepts requests from the game over a private Unix socket. An eligible player action can trigger at most one request and adds at most the configured wait (500 ms by default). If a choice is unavailable, the monster takes its normal turn.
@@ -48,6 +49,12 @@ tail -f "${NETHACKDIR:-$PWD/build/terminal-state}/decisions.log"
 ```
 
 An event with `"requested":true` and `"outcome":"applied"` means the engine accepted the model's choice. Read `action` for the maneuver and `item` for the object when present. A melee attack can miss. A fallback event includes its reason. The generic species named `orc` uses native NetHack behavior. [All supported species and action families](doc/decision-characters.md)
+
+To see what the model receives, start the game with `NETHACK_DECISION_LOG=requests ./scripts/play`. Each outgoing attempt adds a JSON line with `type` set to `request`. Its `body` contains the model, instructions, game state, history, and offered choices. Match its `id` with the outcome in the same session, including when the API times out. Credentials and HTTP headers are omitted. To follow just the request bodies from another terminal with `jq` installed, run
+
+```sh
+tail -n 0 -f "${NETHACKDIR:-$PWD/build/terminal-state}/decisions.log" | jq --unbuffered 'select(.type == "request") | .body'
+```
 
 ## Validate
 

@@ -105,6 +105,23 @@ test("uses the Decisions choice API and records the engine's applied outcome", a
         [["applied", 99, "w"], ["blocked", 99, "w"]]);
 });
 
+test("request logging captures the outbound JSON before a failed call and skips backoff", async t => {
+    const records = [];
+    const bodies = [];
+    const { broker, events } = await brokerFixture(t, (_url, options) => {
+        assert.equal(records.length, 1);
+        bodies.push(options.body);
+        return new Response(null, { status: 401 });
+    }, { onRequest: record => records.push(record) });
+
+    assert.equal(await exchange(broker, encounter()), "1 8 3 36 -\n");
+    assert.equal(await exchange(broker, encounter({ id: "2" })), "2 8 3 36 -\n");
+    assert.equal(bodies.length, 1);
+    assert.deepEqual(records, [{ type: "request", id: "1", turn: 8, level: 3,
+        monster: 36, species: "goblin", body: JSON.parse(bodies[0]) }]);
+    assert.deepEqual(events.map(e => e.reason), ["authentication", "authentication_backoff"]);
+});
+
 test("sends the shared instructions followed by the selected monster's configured prompt", async t => {
     const instructions = [];
     const { broker } = await brokerFixture(t, (_url, options) => {

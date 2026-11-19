@@ -5,12 +5,12 @@ import { createDecisionBroker } from "./broker.mjs";
 const socketPath = process.argv[2];
 if (!socketPath) throw new Error("The Decisions broker requires a socket path.");
 
-const log = process.env.NETHACK_DECISION_LOG === "1";
+const log = process.env.NETHACK_DECISION_LOG;
+const writeLog = event => console.log(JSON.stringify(event));
 const broker = await createDecisionBroker({
     socketPath,
-    onEvent(event) {
-        if (log) console.log(JSON.stringify(event));
-    },
+    onEvent: log === "1" || log === "requests" ? writeLog : undefined,
+    onRequest: log === "requests" ? writeLog : undefined,
 });
 if (!broker.available) throw new Error("The Decisions broker requires OPENAI_API_KEY.");
 
